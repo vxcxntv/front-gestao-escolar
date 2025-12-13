@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Users, BookOpen, Edit2, Trash2, Calendar, Loader2, AlertCircle } from 'lucide-react';
 import { classesService } from '../services/classesService';
 import { studentsService } from '../services/studentsService'; 
-import { User } from '../types';
+import type { User } from '../services/studentsService';
 
 interface ClassView {
   id: string;
@@ -11,8 +11,8 @@ interface ClassView {
   teacherName: string;
   teacherId?: string;
   studentsCount: number;
-  schedule?: string; // Mantido nos dados caso precise no futuro
-  room?: string;     // Mantido nos dados caso precise no futuro
+  schedule?: string;
+  room?: string;
 }
 
 export function Classes() {
@@ -24,6 +24,7 @@ export function Classes() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorType, setErrorType] = useState<'none' | 'auth' | 'connection'>('none');
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   // Estado para controlar Edição
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export function Classes() {
     try {
       setIsLoading(true);
       setErrorType('none');
+      setErrorMessage('');
 
       // 1. Busca Turmas
       const data = await classesService.getAll();
@@ -50,28 +52,33 @@ export function Classes() {
         grade: cls.academic_year?.toString() || new Date().getFullYear().toString(),
         teacherName: cls.teacher?.name || 'Sem Professor',
         teacherId: cls.teacherId,
-        // Tenta contar alunos de várias formas (lista de students ou lista de enrollments)
         studentsCount: cls.students?.length || cls.enrollments?.length || 0,
         schedule: cls.schedule || '', 
         room: cls.room || ''
       }));
       setClasses(adaptedClasses);
 
-      // 2. Busca Professores
+      // 2. Busca Professores usando o método específico
       try {
-        const users = await studentsService.getAll();
-        const teacherList = users.filter((u: any) => u.role === 'teacher' || u.name.startsWith('Prof'));
-        setTeachers(teacherList.length > 0 ? teacherList : []); 
+        const teacherList = await studentsService.getTeachers();
+        setTeachers(teacherList);
       } catch (e) {
-        console.warn("Erro ao carregar lista de professores");
+        console.warn("Erro ao carregar lista de professores:", e);
+        setTeachers([]);
       }
 
     } catch (err: any) {
       console.error("Erro API Classes:", err);
+      
       if (err.response?.status === 401 || err.response?.status === 403) {
         setErrorType('auth');
+        setErrorMessage('Sessão expirada. Faça login novamente.');
+      } else if (err.message) {
+        setErrorType('connection');
+        setErrorMessage(err.message);
       } else {
         setErrorType('connection');
+        setErrorMessage('Não foi possível conectar ao servidor.');
       }
     } finally {
       setIsLoading(false);
@@ -84,14 +91,21 @@ export function Classes() {
 
   const filteredClasses = classes.filter(cls =>
     cls.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cls.teacherName.toLowerCase().includes(searchTerm.toLowerCase())
+    cls.teacherName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    cls.grade.includes(searchTerm)
   );
 
   // --- HANDLERS ---
 
   const handleAddNew = () => {
     setEditingId(null);
-    setFormData({ name: '', grade: '', teacherId: '', schedule: '', room: '' });
+    setFormData({ 
+      name: '', 
+      grade: new Date().getFullYear().toString(), 
+      teacherId: '', 
+      schedule: '', 
+      room: '' 
+    });
     setShowModal(true);
   };
 
@@ -110,42 +124,67 @@ export function Classes() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
+    setErrorType('none');
+    setErrorMessage('');
+
     try {
+      // Validação básica
+      if (!formData.name.trim()) {
+        throw new Error('Nome da turma é obrigatório');
+      }
+      
+      const academicYear = parseInt(formData.grade);
+      if (isNaN(academicYear)) {
+        throw new Error('Ano letivo inválido');
+      }
+
       const payload = {
-        name: formData.name,
-        academic_year: parseInt(formData.grade) || new Date().getFullYear(),
+        name: formData.name.trim(),
+        academic_year: academicYear,
         teacherId: formData.teacherId,
-        schedule: formData.schedule,
-        room: formData.room
+        schedule: formData.schedule.trim() || undefined,
+        room: formData.room.trim() || undefined
       };
 
       if (editingId) {
         await classesService.update(editingId, payload);
-        alert("Turma atualizada com sucesso!");
+        alert("✅ Turma atualizada com sucesso!");
       } else {
         await classesService.create(payload);
-        alert("Turma criada com sucesso!");
+        alert("✅ Turma criada com sucesso!");
       }
       
       setShowModal(false);
-      fetchData(); 
-    } catch (err) {
-      alert("Erro ao salvar turma. Verifique os dados.");
+      fetchData();
+      
+    } catch (err: any) {
+      console.error('Erro ao salvar turma:', err);
+      alert(err.message || "Erro ao salvar turma. Verifique os dados.");
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Tem certeza? Excluir a turma pode afetar matrículas.")) return;
+    const classToDelete = classes.find(c => c.id === id);
+    if (!classToDelete) return;
+    
+    if (!confirm(`Tem certeza que deseja excluir a turma "${classToDelete.name}"?\n\nEsta ação pode afetar matrículas associadas.`)) {
+      return;
+    }
+    
     try {
-        await classesService.delete(id);
-        setClasses(prev => prev.filter(c => c.id !== id));
-    } catch (err) {
-        alert("Erro ao excluir turma.");
+      await classesService.delete(id);
+      alert("✅ Turma excluída com sucesso!");
+      setClasses(prev => prev.filter(c => c.id !== id));
+    } catch (err: any) {
+      console.error('Erro ao excluir turma:', err);
+      alert(err.message || "Erro ao excluir turma.");
     }
   };
 
+  // Adiciona barra de busca sem alterar layout (mantém design)
+  // Apenas adiciona depois do header
   return (
     <div className="animate-in fade-in duration-500 space-y-8">
       {/* Header */}
@@ -163,7 +202,23 @@ export function Classes() {
         </button>
       </div>
 
-      {/* Alerta de Erro */}
+      {/* Barra de Busca - ADICIONADA (funcionalidade nova) */}
+      <div className="relative">
+        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <input
+          type="text"
+          className="w-full pl-10 pr-4 py-3 bg-white/50 backdrop-blur-sm border border-white/50 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+          placeholder="Buscar turmas por nome, professor ou ano..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
+      {/* Alerta de Erro - MELHORADO com mensagem específica */}
       {errorType !== 'none' && (
         <div className={`rounded-xl border p-4 flex items-start gap-3 backdrop-blur-md shadow-sm ${
           errorType === 'auth' ? 'bg-amber-50/80 border-amber-200 text-amber-800' : 'bg-red-50/80 border-red-200 text-red-800'
@@ -172,7 +227,7 @@ export function Classes() {
           <div>
             <h4 className="font-semibold">{errorType === 'auth' ? 'Acesso Restrito' : 'Erro de Conexão'}</h4>
             <p className="text-sm opacity-90 mt-1">
-              {errorType === 'auth' ? 'Sessão expirada.' : 'Não foi possível carregar as turmas.'}
+              {errorMessage || (errorType === 'auth' ? 'Sessão expirada.' : 'Não foi possível carregar as turmas.')}
             </p>
           </div>
         </div>
@@ -285,6 +340,11 @@ export function Classes() {
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
+                {teachers.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-2">
+                    ⚠️ Nenhum professor cadastrado. Cadastre professores primeiro.
+                  </p>
+                )}
               </div>
 
               <div className="col-span-2 flex justify-end gap-3 pt-4 border-t border-slate-100">
