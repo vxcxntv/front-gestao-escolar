@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { ReactNode } from 'react'; // Adicionar import
-import { AppSidebar } from './AppSidebar';
-import { Home, Users, BookOpen, Award, Megaphone, Menu, X, Clock,
-  DollarSign, Calendar, BarChart3, Settings, GraduationCap, FileText, User } from 'lucide-react';
+import { AppSidebar } from './AppSideBar';
+import {
+  Home, Users, Library, BookOpen, Award, Megaphone, Menu, X, Clock,
+  DollarSign, Calendar, BarChart3, Settings, GraduationCap, FileText, User
+} from 'lucide-react';
 
 interface LayoutProps {
   children: ReactNode; // Adicionar interface para props
@@ -16,7 +18,7 @@ export function Layout({ children }: LayoutProps) { // Receber children como pro
     { path: '/users', label: 'Usuários', icon: Users },
     { path: '/students', label: 'Estudantes', icon: GraduationCap },
     { path: '/teachers', label: 'Professores', icon: User },
-    { path: '/classes', label: 'Turmas', icon: BookOpen },
+    { path: '/classes', label: 'Turmas', icon: Library },
     { path: '/subjects', label: 'Disciplinas', icon: BookOpen },
     { path: '/grades', label: 'Notas', icon: Award },
     { path: '/attendance', label: 'Frequência', icon: Clock },
@@ -39,8 +41,7 @@ export function Layout({ children }: LayoutProps) { // Receber children como pro
 
       <div className="flex h-screen">
         {/* Sidebar */}
-        <div className={`fixed lg:static inset-y-0 left-0 z-50 transform ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        <div className={`fixed lg:static inset-y-0 left-0 z-50 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } lg:translate-x-0 transition-transform duration-300 ease-in-out h-full`}>
           <AppSidebar
             menuItems={menuItems}
@@ -58,14 +59,14 @@ export function Layout({ children }: LayoutProps) { // Receber children como pro
             >
               {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
-            
+
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
                 <GraduationCap className="w-4 h-4 text-indigo-600" />
               </div>
               <span className="font-bold text-slate-800">Gestão Escolar</span>
             </div>
-            
+
             <div className="w-10"></div>
           </header>
 

@@ -57,6 +57,7 @@ export interface Subject {
   code: string;
   description?: string;
   credits: number;
+  year: number;
   teacherId?: string;
   teacherName?: string;
   classIds?: string[];

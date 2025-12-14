@@ -1,27 +1,32 @@
-import { useState } from 'react';
-import { Plus, Pin, Trash2, Calendar, User, Megaphone, AlertTriangle, Info, Star } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import {
+  Plus, Pin, Trash2, Calendar, User, Megaphone,
+  AlertTriangle, Info, Star, Edit2, Loader2, AlertCircle
+} from 'lucide-react';
+import { announcementsService, AnnouncementData } from '../services/announcementsService';
 
-interface Announcement {
-  id: number;
-  title: string;
-  content: string;
-  author: string;
-  date: string;
+interface Announcement extends AnnouncementData {
   category: 'general' | 'event' | 'urgent' | 'academic';
-  pinned: boolean;
+  authorDisplayName: string;
+  date: string;
 }
 
 export function Announcements() {
   const [showModal, setShowModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorType, setErrorType] = useState<'none' | 'auth' | 'connection'>('none');
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const [announcements, setAnnouncements] = useState<Announcement[]>([
-    { id: 1, title: 'Reunião de Pais - 3º Bimestre', content: 'Convidamos todos os pais e responsáveis para a reunião de apresentação dos resultados do 3º bimestre. A reunião acontecerá no dia 25/11/2025 às 19h no auditório principal.', author: 'Direção', date: '2025-11-18', category: 'event', pinned: true },
-    { id: 2, title: 'Inscrições Abertas - Feira de Ciências', content: 'As inscrições para a Feira de Ciências 2025 estão abertas! Os estudantes interessados devem se inscrever até o dia 30/11 na secretaria.', author: 'Coordenação', date: '2025-11-15', category: 'academic', pinned: true },
-    { id: 3, title: 'Manutenção do Sistema', content: 'Informamos que o sistema estará em manutenção no dia 22/11 das 22h às 2h.', author: 'TI', date: '2025-11-20', category: 'general', pinned: false },
-    { id: 4, title: 'Alteração no Calendário', content: 'Devido ao feriado prolongado, as aulas do dia 15/11 foram transferidas.', author: 'Secretaria', date: '2025-11-10', category: 'urgent', pinned: false },
-  ]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({ title: '', content: '', category: 'general' as Announcement['category'] });
+  const [formData, setFormData] = useState({
+    title: '',
+    content: '',
+    category: 'general' as Announcement['category'],
+    pinned: false
+  });
 
   const categoryConfig = {
     general: { label: 'Geral', bg: 'bg-slate-100', text: 'text-slate-600', icon: Info },
@@ -30,11 +35,119 @@ export function Announcements() {
     academic: { label: 'Acadêmico', bg: 'bg-emerald-100', text: 'text-emerald-600', icon: Star },
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const loadAnnouncements = async () => {
+    setIsLoading(true);
+    setErrorType('none');
+    try {
+      const rawData = await announcementsService.getAnnouncements();
+
+      const safeArray = Array.isArray(rawData) ? rawData : [];
+
+      const adaptedData: Announcement[] = safeArray.map((item: any) => {
+        // 1. CORREÇÃO CRÍTICA DO AUTOR
+        // O backend manda um objeto author: { name: '...' }, o frontend precisa de uma string.
+        let displayAuthor = 'Escola';
+
+        if (item.author && typeof item.author === 'object' && item.author.name) {
+          displayAuthor = item.author.name; // Pega de dentro do objeto
+        } else if (typeof item.author === 'string') {
+          displayAuthor = item.author;
+        } else if (item.authorName) {
+          displayAuthor = item.authorName;
+        }
+
+        // 2. Normalização de Categoria
+        let safeCategory: Announcement['category'] = 'general';
+        if (item.category && ['general', 'event', 'urgent', 'academic'].includes(item.category)) {
+          safeCategory = item.category;
+        }
+
+        // 3. Tratamento de Data
+        let displayDate = new Date().toISOString();
+        if (item.date) displayDate = item.date;
+        else if (item.createdAt) displayDate = item.createdAt;
+
+        return {
+          id: item.id || Math.random().toString(),
+          title: item.title || 'Sem Título',
+          content: item.content || '',
+          category: safeCategory,
+          pinned: !!item.pinned,
+          authorDisplayName: displayAuthor, // Usamos essa propriedade segura na renderização
+          date: displayDate
+        };
+      });
+
+      setAnnouncements(adaptedData);
+    } catch (error: any) {
+      console.error("Erro no componente Announcements:", error);
+      if (error.response?.status === 401) {
+        setErrorType('auth');
+      } else {
+        setErrorType('connection');
+        setErrorMessage(error.message || 'Erro desconhecido');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAnnouncements();
+  }, []);
+
+  const handleAddNew = () => {
+    setEditingId(null);
+    setFormData({ title: '', content: '', category: 'general', pinned: false });
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: Announcement) => {
+    setEditingId(item.id);
+    setFormData({
+      title: item.title,
+      content: item.content,
+      category: item.category,
+      pinned: item.pinned ?? false,
+    });
+    setShowModal(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Excluir este aviso?")) return;
+    try {
+      await announcementsService.deleteAnnouncement(id);
+      setAnnouncements(prev => prev.filter(a => a.id !== id));
+    } catch (e) { alert("Erro ao excluir."); }
+  };
+
+  const handleTogglePin = async (item: Announcement) => {
+    const newStatus = !item.pinned;
+    setAnnouncements(prev => prev.map(a => a.id === item.id ? { ...a, pinned: newStatus } : a));
+    try {
+      await announcementsService.updateAnnouncement(item.id, { pinned: newStatus });
+    } catch (e) {
+      setAnnouncements(prev => prev.map(a => a.id === item.id ? { ...a, pinned: !newStatus } : a));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newAnn: Announcement = { id: Date.now(), title: formData.title, content: formData.content, author: 'Admin', date: new Date().toISOString().split('T')[0], category: formData.category, pinned: false };
-    setAnnouncements([newAnn, ...announcements]);
-    setShowModal(false);
+    setIsSaving(true);
+    try {
+      const payload = { ...formData };
+      if (editingId) {
+        await announcementsService.updateAnnouncement(editingId, payload);
+      } else {
+        await announcementsService.createAnnouncement(payload);
+      }
+      setShowModal(false);
+      loadAnnouncements();
+    } catch (error) {
+      alert("Erro ao salvar.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const sorted = [...announcements].sort((a, b) => (a.pinned === b.pinned ? 0 : a.pinned ? -1 : 1));
@@ -44,82 +157,108 @@ export function Announcements() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Quadro de Avisos</h1>
-          <p className="text-slate-500 mt-1">Comunicação oficial para a comunidade escolar</p>
+          <p className="text-slate-500 mt-1">Comunicação oficial</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="group flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2.5 rounded-xl hover:shadow-lg transition-all hover:-translate-y-0.5">
+        <button onClick={handleAddNew} className="group flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2.5 rounded-xl hover:shadow-lg transition-all hover:-translate-y-0.5">
           <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" /> <span className="font-medium">Novo Anúncio</span>
         </button>
       </div>
 
-      <div className="grid gap-4">
-        {sorted.map((item) => {
-          const CatIcon = categoryConfig[item.category].icon;
-          return (
-            <div key={item.id} className={`relative bg-white/70 backdrop-blur-xl rounded-2xl p-6 border shadow-sm transition-all hover:shadow-md ${item.pinned ? 'border-indigo-200 shadow-indigo-100/50 bg-indigo-50/30' : 'border-white/50'}`}>
-              {item.pinned && <div className="absolute -top-3 -left-3 bg-indigo-600 text-white p-1.5 rounded-full shadow-lg z-10"><Pin className="w-4 h-4 fill-current" /></div>}
+      {errorType !== 'none' && (
+        <div className="bg-red-50 text-red-800 p-4 rounded-xl flex items-center gap-3 border border-red-200">
+          <AlertCircle className="w-5 h-5" />
+          <span>{errorType === 'auth' ? 'Sessão expirada.' : `Erro: ${errorMessage || 'Falha ao carregar dados'}`}</span>
+        </div>
+      )}
 
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 ${categoryConfig[item.category].bg} ${categoryConfig[item.category].text}`}>
-                      <CatIcon className="w-3.5 h-3.5" /> {categoryConfig[item.category].label}
-                    </span>
-                    <h3 className="text-lg font-bold text-slate-800">{item.title}</h3>
+      {isLoading ? (
+        <div className="p-20 flex justify-center"><Loader2 className="w-10 h-10 animate-spin text-indigo-500" /></div>
+      ) : (
+        <div className="grid gap-4">
+          {sorted.map((item) => {
+            const config = categoryConfig[item.category] || categoryConfig.general;
+            const CatIcon = config.icon;
+
+            // Tratamento de data seguro
+            let dateStr = 'Data inválida';
+            try {
+              dateStr = new Date(item.date).toLocaleDateString('pt-BR');
+            } catch (e) { }
+
+            return (
+              <div key={item.id} className={`relative bg-white/70 backdrop-blur-xl rounded-2xl p-6 border shadow-sm transition-all hover:shadow-md ${item.pinned ? 'border-indigo-200 shadow-indigo-100/50 bg-indigo-50/30' : 'border-white/50'}`}>
+                {item.pinned && <div className="absolute -top-3 -left-3 bg-indigo-600 text-white p-1.5 rounded-full shadow-lg z-10"><Pin className="w-4 h-4 fill-current" /></div>}
+
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 ${config.bg} ${config.text}`}>
+                        <CatIcon className="w-3.5 h-3.5" /> {config.label}
+                      </span>
+                      <h3 className="text-lg font-bold text-slate-800">{item.title}</h3>
+                    </div>
+                    <p className="text-slate-600 mb-4 whitespace-pre-wrap">{item.content}</p>
+                    <div className="flex items-center gap-4 text-xs text-slate-400 font-medium">
+                      <span className="flex items-center gap-1">
+                        <User className="w-3.5 h-3.5" />
+                        {/* Aqui usamos a propriedade segura, não o objeto */}
+                        {item.authorDisplayName}
+                      </span>
+                      <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {dateStr}</span>
+                    </div>
                   </div>
-                  <p className="text-slate-600 leading-relaxed mb-4">{item.content}</p>
-                  <div className="flex items-center gap-4 text-xs text-slate-400 font-medium">
-                    <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> {item.author}</span>
-                    <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {new Date(item.date).toLocaleDateString('pt-BR')}</span>
+                  <div className="flex sm:flex-col gap-2 justify-end sm:justify-center border-t sm:border-t-0 sm:border-l border-slate-100 pt-3 sm:pt-0 sm:pl-4">
+                    <button onClick={() => handleTogglePin(item)} className={`p-2 rounded-lg transition-colors ${item.pinned ? 'text-indigo-600 bg-indigo-100' : 'text-slate-400 hover:text-indigo-600'}`}><Pin className="w-5 h-5" /></button>
+                    <button onClick={() => handleEdit(item)} className="p-2 rounded-lg text-slate-400 hover:text-indigo-600"><Edit2 className="w-5 h-5" /></button>
+                    <button onClick={() => handleDelete(item.id)} className="p-2 rounded-lg text-slate-400 hover:text-rose-600"><Trash2 className="w-5 h-5" /></button>
                   </div>
-                </div>
-                <div className="flex sm:flex-col gap-2 border-t sm:border-t-0 sm:border-l border-slate-100 pt-3 sm:pt-0 sm:pl-4 justify-end sm:justify-center">
-                  <button onClick={() => setAnnouncements(prev => prev.map(a => a.id === item.id ? { ...a, pinned: !a.pinned } : a))}
-                    className={`p-2 rounded-lg transition-colors ${item.pinned ? 'text-indigo-600 bg-indigo-100' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`} title={item.pinned ? "Desafixar" : "Fixar"}>
-                    <Pin className="w-5 h-5" />
-                  </button>
-                  <button onClick={() => setAnnouncements(prev => prev.filter(a => a.id !== item.id))}
-                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors" title="Excluir">
-                    <Trash2 className="w-5 h-5" />
-                  </button>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+          {sorted.length === 0 && <div className="text-center text-slate-500 py-10">Nenhum aviso encontrado.</div>}
+        </div>
+      )}
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-0 overflow-hidden animate-in zoom-in-95">
-            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4 flex justify-between items-center">
-              <h2 className="text-white font-bold text-lg flex items-center gap-2"><Megaphone className="w-5 h-5 text-indigo-200" /> Criar Anúncio</h2>
-              <button onClick={() => setShowModal(false)} className="text-white/70 hover:text-white text-2xl">&times;</button>
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full animate-in zoom-in-95 overflow-hidden">
+            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4 flex justify-between items-center text-white">
+              <h2 className="font-bold text-lg flex gap-2"><Megaphone className="w-5 h-5" /> {editingId ? 'Editar' : 'Novo'} Anúncio</h2>
+              <button onClick={() => setShowModal(false)} className="text-2xl hover:text-white/80">&times;</button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Título</label>
-                <input type="text" required className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                  value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="Resumo do assunto" />
+                <label className="block text-sm font-medium mb-1">Título</label>
+                <input required className="w-full px-4 py-2 border rounded-xl" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
+              </div>
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium mb-1">Categoria</label>
+                  <select className="w-full px-4 py-2 border rounded-xl" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value as any })}>
+                    <option value="general">Geral</option>
+                    <option value="event">Evento</option>
+                    <option value="urgent">Urgente</option>
+                    <option value="academic">Acadêmico</option>
+                  </select>
+                </div>
+                <div className="flex items-center pt-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={formData.pinned} onChange={e => setFormData({ ...formData, pinned: e.target.checked })} className="w-4 h-4 text-indigo-600 rounded" />
+                    <span className="text-sm font-medium text-slate-700">Fixar no topo</span>
+                  </label>
+                </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Categoria</label>
-                <select className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                  value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value as any })}>
-                  <option value="general">Geral</option>
-                  <option value="event">Evento</option>
-                  <option value="urgent">Urgente</option>
-                  <option value="academic">Acadêmico</option>
-                </select>
+                <label className="block text-sm font-medium mb-1">Conteúdo</label>
+                <textarea required rows={4} className="w-full px-4 py-2 border rounded-xl resize-none" value={formData.content} onChange={e => setFormData({ ...formData, content: e.target.value })} />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Conteúdo</label>
-                <textarea required rows={5} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none resize-none"
-                  value={formData.content} onChange={e => setFormData({ ...formData, content: e.target.value })} placeholder="Digite a mensagem completa..." />
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2 text-slate-600 hover:bg-slate-50 rounded-xl font-medium border border-slate-200">Cancelar</button>
-                <button type="submit" className="px-5 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium shadow-md">Publicar</button>
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2 border rounded-xl">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-5 py-2 bg-indigo-600 text-white rounded-xl flex items-center gap-2">
+                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
+                </button>
               </div>
             </form>
           </div>
