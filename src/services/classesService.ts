@@ -40,20 +40,29 @@ export interface ClassResponse {
   data?: Class;
 }
 
+// Interface nova para os parâmetros de filtro
+export interface ClassParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
 export const classesService = {
-  getAll: async (): Promise<Class[]> => {
+  // 1. Renomeado de 'getAll' para 'getClasses'
+  // 2. Agora aceita 'params' (page, limit, etc.)
+  getClasses: async (params?: ClassParams): Promise<Class[]> => {
     try {
-      const response = await api.get('/classes');
+      // Passamos os params na requisição axios
+      const response = await api.get('/classes', { params });
       
-      // Ajuste para sua API NestJS
       let data = response.data;
       
-      // Se a resposta tiver estrutura { data: [], total, page, totalPages }
+      // Se a resposta tiver estrutura paginada { data: [], total, page... }
       if (data && data.data && Array.isArray(data.data)) {
         data = data.data;
       }
       
-      console.log('classesService getAll response:', data);
+      console.log('classesService getClasses response:', data);
       
       return Array.isArray(data) ? data : [];
     } catch (error: any) {
@@ -102,7 +111,6 @@ export const classesService = {
     }
   },
 
-  // Métodos opcionais para matrícula de alunos
   enrollStudent: async (classId: string, studentId: string): Promise<{ message: string }> => {
     try {
       const response = await api.post(`/classes/${classId}/students`, { studentId });

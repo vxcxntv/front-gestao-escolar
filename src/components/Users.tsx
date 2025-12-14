@@ -3,7 +3,8 @@ import { Users as UsersIcon, Plus, Filter, Search, Mail, Shield, Eye,
   Edit, Trash2, UserCheck, UserX } from 'lucide-react';
 import { DataTable } from '../components/ui/DataTable';
 import { Button } from '../components/ui/Button';
-import { usersService, type User } from '../services/usersService';
+import { usersService } from '../services/usersService';
+import { User } from '../types/index';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -146,8 +147,8 @@ export function UsersPage() {
       variant: 'default' as const
     },
     {
-      label: row => row.status === 'active' ? 'Desativar' : 'Ativar',
-      icon: row => row.status === 'active' ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />,
+      label: (row: any) => row.status === 'active' ? 'Desativar' : 'Ativar',
+      icon: (row: any) => row.status === 'active' ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />,
       onClick: (row: User) => {
         const newStatus = row.status === 'active' ? 'inactive' : 'active';
         usersService.updateUser(row.id, { status: newStatus }).then(loadUsers);
@@ -181,7 +182,7 @@ export function UsersPage() {
     { role: 'admin', count: users.filter(u => u.role === 'admin').length, color: 'from-purple-500 to-pink-400' },
     { role: 'teacher', count: users.filter(u => u.role === 'teacher').length, color: 'from-blue-500 to-cyan-400' },
     { role: 'student', count: users.filter(u => u.role === 'student').length, color: 'from-emerald-500 to-teal-400' },
-    { role: 'parent', count: users.filter(u => u.role === 'parent').length, color: 'from-amber-500 to-yellow-400' }
+    { role: 'guardian', count: users.filter(u => u.role === 'guardian').length, color: 'from-amber-500 to-yellow-400' }
   ];
 
   return (

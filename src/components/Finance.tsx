@@ -3,7 +3,8 @@ import { DollarSign, TrendingUp, AlertCircle, CheckCircle, Clock,
   Filter, Plus, Download, Eye, Edit, Trash2, BarChart3 } from 'lucide-react';
 import { DataTable } from '../components/ui/DataTable';
 import { Button } from '../components/ui/Button';
-import { invoicesService, type Invoice } from '../services/invoicesService';
+import { invoicesService } from '../services/invoicesService';
+import { Invoice } from '../types/index';
 import { reportsService } from '../services/reportsService';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
