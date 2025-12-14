@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Users, BookOpen, Edit2, Trash2, Calendar, Loader2, AlertCircle } from 'lucide-react';
 import { classesService } from '../services/classesService';
 import { studentsService } from '../services/studentsService'; 
-import type { User } from '../services/studentsService';
-
+import type { User } from '../types';
 interface ClassView {
   id: string;
   name: string;

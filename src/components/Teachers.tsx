@@ -20,15 +20,14 @@ export function Teachers() {
   const fetchTeachers = async () => {
     try {
       setIsLoading(true);
-      // Busca específica de PROFESSORES
-      const data = await studentsService.getAll('teacher');
+      const data = await studentsService.getAllByRole('teacher');
       setTeachers(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Erro ao buscar professores:", err);
     } finally {
       setIsLoading(false);
-    }
-  };
+  }
+};
 
   useEffect(() => {
     fetchTeachers();

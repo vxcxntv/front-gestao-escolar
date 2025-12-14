@@ -1,13 +1,16 @@
 export interface User {
-    id: string; // Swagger usa UUID
+    id: string;
     name: string;
     email: string;
-    role: 'admin' | 'teacher' | 'student' | 'guardian';
-    // Campos abaixo assumidos como existentes no retorno da API para atender a tela
+    role: 'admin' | 'teacher' | 'student' | 'guardian' | 'responsible'; // ✅ Adicione 'responsible'
     phone?: string;
     enrollment?: string;
     status?: 'active' | 'inactive';
-    class?: string; // Nome da turma para exibição
+    class?: string;
+    matricula?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    grades?: any[];
 }
 
 export interface GetUsersResponse {

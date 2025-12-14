@@ -1,19 +1,5 @@
 import { api } from '../lib/api';
-
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: 'admin' | 'teacher' | 'student' | 'responsible';
-  phone?: string;
-  status?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  matricula?: string;
-  enrollment?: any;
-  class?: any;
-  grades?: any[];
-}
+import { User } from '../types';
 
 export interface CreateStudentDto {
   name: string;
@@ -90,11 +76,10 @@ export const studentsService = {
           role: user.role || 'student',
           matricula: user.matricula,
           
-          // Campos adaptados para a view
           enrollmentNumber: enrollmentValue,
           className: className,
           
-          grades: Array.isArray(user.grades) ? user.grades : []
+          grades: Array.isArray(user.grades) ? user.grades : [] 
         };
       });
     } catch (error: any) {
@@ -123,7 +108,6 @@ export const studentsService = {
     try {
       const payload: any = { ...data };
       
-      // Só inclui matricula se enrollment for fornecido
       if (data.enrollment !== undefined) {
         payload.matricula = data.enrollment;
       }
@@ -147,7 +131,6 @@ export const studentsService = {
 
   getTeachers: async (): Promise<User[]> => {
     try {
-      // Busca todos os usuários e filtra professores
       const response = await api.get('/users');
       
       let data = response.data;
@@ -159,7 +142,6 @@ export const studentsService = {
         return [];
       }
       
-      // Filtra professores (aceita 'teacher' ou 'professor')
       return data.filter((user: any) => 
         user.role === 'teacher' || user.role === 'professor'
       );
@@ -169,7 +151,6 @@ export const studentsService = {
     }
   },
 
-  // Método adicional para buscar todos os usuários (inclui professores)
   getAllUsers: async (): Promise<User[]> => {
     try {
       const response = await api.get('/users');
@@ -184,5 +165,23 @@ export const studentsService = {
       console.error("studentsService: Erro ao buscar usuários", error);
       throw error;
     }
+  },
+
+  getAllByRole: async (role: string): Promise<User[]> => {
+  try {
+    const response = await api.get('/users', { 
+      params: { role } 
+    });
+    
+    let data = response.data;
+    if (data && data.data && Array.isArray(data.data)) {
+      data = data.data;
+    }
+    
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error(`studentsService: Erro ao buscar usuários por role ${role}`, error);
+    throw error;
   }
+}
 };
