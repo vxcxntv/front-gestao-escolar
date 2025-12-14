@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, Mail, Phone, Loader2, AlertCircle, GraduationCap } from 'lucide-react';
 import { studentsService } from '../services/studentsService';
+import { teachersService } from '../services/teachersService';
 import { User } from '../types';
 
 export function Teachers() {
@@ -20,14 +21,14 @@ export function Teachers() {
   const fetchTeachers = async () => {
     try {
       setIsLoading(true);
-      const data = await studentsService.getAllByRole('teacher');
-      setTeachers(Array.isArray(data) ? data : []);
+      const data = await teachersService.getAll();
+      setTeachers((Array.isArray(data) ? data : []) as unknown as User[]);
     } catch (err) {
       console.error("Erro ao buscar professores:", err);
     } finally {
       setIsLoading(false);
-  }
-};
+    }
+  };
 
   useEffect(() => {
     fetchTeachers();
@@ -41,11 +42,11 @@ export function Teachers() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const payload = { ...formData, role: 'teacher', enrollment: '' };
+      const payload = { ...formData, role: 'teacher' };
       if (editingId) {
-        await studentsService.update(editingId, payload);
+        await teachersService.update(editingId, payload);
       } else {
-        await studentsService.create(payload);
+        await teachersService.create(payload);
       }
       setShowModal(false);
       fetchTeachers();
@@ -60,7 +61,7 @@ export function Teachers() {
   const handleDelete = async (id: string) => {
     if (!confirm("Tem certeza que deseja excluir este professor?")) return;
     try {
-      await studentsService.delete(id);
+      await teachersService.delete(id);
       setTeachers(prev => prev.filter(t => t.id !== id));
     } catch (error) {
       alert("Erro ao excluir.");
@@ -76,9 +77,9 @@ export function Teachers() {
         </div>
         <button
           onClick={() => { setEditingId(null); setFormData({ name: '', email: '', phone: '' }); setShowModal(true); }}
-          className="group flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-5 py-2.5 rounded-xl hover:shadow-lg transition-all"
+          className="group flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2.5 rounded-xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all duration-300 transform hover:-translate-y-0.5 font-medium"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
           <span>Novo Professor</span>
         </button>
       </div>
@@ -121,8 +122,8 @@ export function Teachers() {
                         <span className="font-semibold text-slate-800">{teacher.name}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><Mail className="w-4 h-4"/>{teacher.email}</div></td>
-                    <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><Phone className="w-4 h-4"/>{teacher.phone}</div></td>
+                    <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><Mail className="w-4 h-4" />{teacher.email}</div></td>
+                    <td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-2"><Phone className="w-4 h-4" />{teacher.phone}</div></td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => { setEditingId(teacher.id); setFormData({ name: teacher.name, email: teacher.email, phone: teacher.phone || '' }); setShowModal(true); }} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all">
@@ -146,24 +147,24 @@ export function Teachers() {
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6">
             <h2 className="text-xl font-bold mb-4 text-emerald-800">{editingId ? 'Editar' : 'Novo'} Professor</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
-               <div>
-                  <label className="block text-sm font-medium text-slate-700">Nome</label>
-                  <input required className="w-full border p-2 rounded-lg" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-               </div>
-               <div>
-                  <label className="block text-sm font-medium text-slate-700">Email</label>
-                  <input required type="email" className="w-full border p-2 rounded-lg" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-               </div>
-               <div>
-                  <label className="block text-sm font-medium text-slate-700">Telefone</label>
-                  <input className="w-full border p-2 rounded-lg" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
-               </div>
-               <div className="flex justify-end gap-2 pt-4">
-                  <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg">Cancelar</button>
-                  <button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2">
-                    {isSaving && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
-                  </button>
-               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700">Nome</label>
+                <input required className="w-full border p-2 rounded-lg" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700">Email</label>
+                <input required type="email" className="w-full border p-2 rounded-lg" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700">Telefone</label>
+                <input className="w-full border p-2 rounded-lg" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
+              </div>
+              <div className="flex justify-end gap-2 pt-4">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg">Cancelar</button>
+                <button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2">
+                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
+                </button>
+              </div>
             </form>
           </div>
         </div>

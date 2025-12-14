@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Edit2, Trash2, Mail, Phone, Loader2, AlertCircle, GraduationCap } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Mail, Phone, Loader2, AlertCircle } from 'lucide-react';
 import { studentsService } from '../services/studentsService';
-import { classesService } from '../services/classesService'; // Importando serviço de turmas
+import { classesService } from '../services/classesService';
 import { User } from '../types';
 
 export function Students() {
@@ -10,7 +10,7 @@ export function Students() {
 
   // --- Lógica de Integração ---
   const [students, setStudents] = useState<User[]>([]);
-  const [classesList, setClassesList] = useState<any[]>([]); // Estado para armazenar as turmas
+  const [classesList, setClassesList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorType, setErrorType] = useState<'none' | 'auth' | 'connection'>('none');
@@ -22,7 +22,7 @@ export function Students() {
     name: '',
     email: '',
     phone: '',
-    class: '', // Armazena o NOME da turma (para compatibilidade com o backend atual)
+    class: '', // Armazena o NOME da turma
     enrollment: '',
   });
 
@@ -30,9 +30,8 @@ export function Students() {
   useEffect(() => {
     const loadClasses = async () => {
       try {
-        const response = await classesService.getClasses();
-        // Ordena alfabeticamente pelo nome da turma
-        const sortedClasses = response.sort((a: any, b: any) => 
+        const response = await classesService.getClasses({ limit: 100 });
+        const sortedClasses = response.sort((a: any, b: any) =>
           a.name.localeCompare(b.name)
         );
         setClassesList(sortedClasses);
@@ -43,19 +42,18 @@ export function Students() {
     loadClasses();
   }, []);
 
-  // Lógica de Matrícula Automática
   const generateNextEnrollment = (currentStudents: User[]) => {
     try {
-        const enrollments = currentStudents
-          .map(s => parseInt(s.enrollment || '0'))
-          .filter(n => !isNaN(n) && n > 0);
+      const enrollments = currentStudents
+        .map(s => parseInt(s.enrollment || '0'))
+        .filter(n => !isNaN(n) && n > 0);
 
-        if (enrollments.length === 0) return '2025001';
+      if (enrollments.length === 0) return '2025001';
 
-        const maxEnrollment = Math.max(...enrollments);
-        return (maxEnrollment + 1).toString();
+      const maxEnrollment = Math.max(...enrollments);
+      return (maxEnrollment + 1).toString();
     } catch (e) {
-        return '2025001';
+      return '2025001';
     }
   };
 
@@ -79,7 +77,7 @@ export function Students() {
       } else {
         setErrorType('connection');
       }
-      setStudents([]); 
+      setStudents([]);
     } finally {
       setIsLoading(false);
     }
@@ -115,7 +113,7 @@ export function Students() {
       name: student.name,
       email: student.email,
       phone: student.phone || '',
-      class: student.class || '',
+      class: student.class || '', // Preenche o select com o nome atual
       enrollment: student.enrollment || ''
     });
     setShowModal(true);
@@ -123,7 +121,7 @@ export function Students() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Tem certeza que deseja excluir este aluno?")) return;
-    
+
     try {
       await studentsService.delete(id);
       setStudents(prev => prev.filter(s => s.id !== id));
@@ -137,28 +135,52 @@ export function Students() {
     setIsSaving(true);
 
     try {
+      let studentId = editingId;
+
+      // 1. Salva/Cria os dados básicos do aluno
       if (editingId) {
         await studentsService.update(editingId, {
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          enrollment: formData.enrollment, 
-          class: formData.class
-        });
-        alert("Aluno atualizado!");
-      } else {
-        await studentsService.create({
           name: formData.name,
           email: formData.email,
           phone: formData.phone,
           enrollment: formData.enrollment,
           class: formData.class
         });
-        alert("Aluno cadastrado!");
+      } else {
+        const newStudent = await studentsService.create({
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          enrollment: formData.enrollment,
+          class: formData.class
+        });
+        // Captura o ID do novo aluno criado para poder matricular
+        if (newStudent && newStudent.id) {
+          studentId = newStudent.id;
+        }
       }
-      
+
+      // 2. FORÇA A ATUALIZAÇÃO DA TURMA (Matrícula)
+      // O endpoint PATCH /users muitas vezes ignora relacionamentos complexos.
+      // Usamos o endpoint específico de matrícula POST /classes/{id}/students
+      if (formData.class && studentId) {
+        // Encontra o ID real da turma baseado no nome selecionado no dropdown
+        const selectedClassObj = classesList.find(c => c.name === formData.class);
+
+        if (selectedClassObj) {
+          try {
+            // Tenta matricular o aluno na turma encontrada
+            await classesService.enrollStudent(selectedClassObj.id, studentId);
+          } catch (enrollError) {
+            console.warn("Aluno salvo, mas erro ao atualizar matrícula:", enrollError);
+            // Não bloqueamos o fluxo, pois o aluno foi salvo, mas avisamos no console
+          }
+        }
+      }
+
+      alert(editingId ? "Aluno atualizado com sucesso!" : "Aluno cadastrado com sucesso!");
       setShowModal(false);
-      fetchStudents(); 
+      fetchStudents();
     } catch (error) {
       console.error("Erro submit:", error);
       alert("Erro ao salvar. Verifique o console.");
@@ -188,9 +210,8 @@ export function Students() {
 
       {/* Alertas */}
       {errorType !== 'none' && (
-        <div className={`mb-6 rounded-xl border p-4 flex items-start gap-3 backdrop-blur-md shadow-sm ${
-          errorType === 'auth' ? 'bg-amber-50/80 border-amber-200 text-amber-800' : 'bg-red-50/80 border-red-200 text-red-800'
-        }`}>
+        <div className={`mb-6 rounded-xl border p-4 flex items-start gap-3 backdrop-blur-md shadow-sm ${errorType === 'auth' ? 'bg-amber-50/80 border-amber-200 text-amber-800' : 'bg-red-50/80 border-red-200 text-red-800'
+          }`}>
           <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
           <div>
             <h4 className="font-semibold">{errorType === 'auth' ? 'Sessão Expirada' : 'Erro de Conexão'}</h4>
@@ -256,8 +277,8 @@ export function Students() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm text-slate-600">
-                        {student.class || '-'}
+                      <span className="text-sm text-slate-600 font-medium">
+                        {student.class || <span className="text-slate-400 italic">Sem Turma</span>}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -274,7 +295,7 @@ export function Students() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
+                        <button
                           onClick={() => handleEdit(student)}
                           className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all border border-transparent hover:border-indigo-100"
                           title="Editar"
@@ -305,54 +326,54 @@ export function Students() {
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 animate-in zoom-in-95">
             <h2 className="text-xl font-bold mb-4">{editingId ? 'Editar' : 'Novo'} Estudante</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Nome */}
-                    <div className="col-span-2">
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Nome Completo</label>
-                        <input required type="text" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Maria Silva" />
-                    </div>
-                    
-                    {/* Matrícula */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Matrícula</label>
-                        <input required readOnly={!editingId} type="text" className={`w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all ${!editingId ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50'}`} value={formData.enrollment} onChange={e => setFormData({...formData, enrollment: e.target.value})} />
-                    </div>
-
-                    {/* Email */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
-                        <input required type="email" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-                    </div>
-
-                    {/* Telefone */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Telefone</label>
-                        <input type="text" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
-                    </div>
-
-                    {/* Turma (Dropdown Ordenado) */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Turma</label>
-                        <select 
-                          value={formData.class} 
-                          onChange={e => setFormData({...formData, class: e.target.value})}
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none cursor-pointer"
-                        >
-                          <option value="">Selecione a turma...</option>
-                          {classesList.map((cls: any) => (
-                            <option key={cls.id} value={cls.name}>
-                              {cls.name}
-                            </option>
-                          ))}
-                        </select>
-                    </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Nome */}
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Nome Completo</label>
+                  <input required type="text" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="Ex: Maria Silva" />
                 </div>
-                <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
-                    <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium transition-colors">Cancelar</button>
-                    <button type="submit" disabled={isSaving} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5 flex items-center gap-2">
-                        {isSaving && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
-                    </button>
+
+                {/* Matrícula */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Matrícula</label>
+                  <input required readOnly={!editingId} type="text" className={`w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all ${!editingId ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50'}`} value={formData.enrollment} onChange={e => setFormData({ ...formData, enrollment: e.target.value })} />
                 </div>
+
+                {/* Email */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+                  <input required type="email" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
+                </div>
+
+                {/* Telefone */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Telefone</label>
+                  <input type="text" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
+                </div>
+
+                {/* Turma (Dropdown) */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Turma</label>
+                  <select
+                    value={formData.class}
+                    onChange={e => setFormData({ ...formData, class: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="">Selecione a turma...</option>
+                    {classesList.map((cls: any) => (
+                      <option key={cls.id} value={cls.name}>
+                        {cls.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium transition-colors">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5 flex items-center gap-2">
+                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
+                </button>
+              </div>
             </form>
           </div>
         </div>

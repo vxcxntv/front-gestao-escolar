@@ -1,25 +1,37 @@
 import { api } from '../lib/api';
-import { User, PaginatedResponse, FilterParams } from '../types';
-
+import { User, FilterParams } from '../types';
 
 export interface CreateUserRequest {
   name: string;
   email: string;
-  password: string;
-  role: 'admin' | 'teacher' | 'student' | 'parent';
+  password?: string;
+  role: 'admin' | 'teacher' | 'student' | 'guardian' | 'parent';
 }
 
 export interface UpdateUserRequest {
   name?: string;
   email?: string;
-  role?: 'admin' | 'teacher' | 'student' | 'parent';
-  status?: 'active' | 'inactive' | 'pending';
+  role?: 'admin' | 'teacher' | 'student' | 'guardian' | 'parent';
+  password?: string;
 }
 
 export const usersService = {
-  getUsers: async (params: FilterParams = {}) => {
-    const response = await api.get<PaginatedResponse<User>>('/users', { params });
-    return response.data;
+  getUsers: async (params: FilterParams = {}): Promise<User[]> => {
+    try {
+      const response = await api.get('/users', { params });
+      let data = response.data;
+
+      if (data && data.data && Array.isArray(data.data)) {
+        data = data.data;
+      } else if (data && data.items && Array.isArray(data.items)) {
+        data = data.items;
+      }
+
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.error('usersService: Erro ao buscar usuários', error);
+      throw error;
+    }
   },
 
   getUser: async (id: string) => {
@@ -28,7 +40,11 @@ export const usersService = {
   },
 
   createUser: async (data: CreateUserRequest) => {
-    const response = await api.post<User>('/users', data);
+    const payload = {
+      ...data,
+      password: data.password || 'Mudar@123'
+    };
+    const response = await api.post<User>('/users', payload);
     return response.data;
   },
 

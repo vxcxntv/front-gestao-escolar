@@ -21,50 +21,50 @@ export interface UpdateStudentDto {
 
 export interface Student extends User {
   enrollmentNumber: string;
-  className: string;
+  //className: string;
 }
 
 export const studentsService = {
-  getAll: async (): Promise<Student[]> => {
+  getAll: async (): Promise<User[]> => {
     try {
-      const response = await api.get('/users', { 
-        params: { role: 'student' } 
+      const response = await api.get('/users', {
+        params: { role: 'student' }
       });
-      
+
       let rawUsers = response.data;
-      
+
+      // Tratamento para estruturas paginadas
       if (rawUsers && rawUsers.data && Array.isArray(rawUsers.data)) {
         rawUsers = rawUsers.data;
       }
-      
+
       if (!Array.isArray(rawUsers)) {
         console.warn("studentsService: Dados inválidos recebidos", rawUsers);
         return [];
       }
 
       return rawUsers.map((user: any) => {
-        // Extração da Matrícula
+        // Lógica de fallback robusta para Matrícula
         let enrollmentValue = 'Pendente';
-        if (user.matricula) {
-          enrollmentValue = user.matricula;
-        } else if (user.enrollment) {
-          if (typeof user.enrollment === 'string') {
-            enrollmentValue = user.enrollment;
-          } else if (typeof user.enrollment === 'object' && user.enrollment.id) {
-            enrollmentValue = user.enrollment.id;
-          }
+        if (user.matricula) enrollmentValue = user.matricula;
+        else if (user.enrollmentNumber) enrollmentValue = user.enrollmentNumber;
+        else if (user.enrollment) {
+          enrollmentValue = typeof user.enrollment === 'string' ? user.enrollment : user.enrollment.id;
         }
 
-        // Extração da Turma
-        let className = 'Sem Turma';
-        if (user.enrollment && typeof user.enrollment === 'object' && user.enrollment.class) {
-          className = user.enrollment.class.name || 'Sem Turma';
-        } else if (user.class) {
-          if (typeof user.class === 'string') {
-            className = user.class;
-          } else if (typeof user.class === 'object' && user.class.name) {
-            className = user.class.name;
-          }
+        // Lógica de fallback robusta para Turma
+        // Baseado no Swagger, o campo esperado é "class" (string)
+        let classValue = 'Sem Turma';
+
+        if (user.class) {
+          // Se vier como string direta
+          if (typeof user.class === 'string') classValue = user.class;
+          // Se vier como objeto
+          else if (typeof user.class === 'object' && user.class.name) classValue = user.class.name;
+        }
+        // Caso venha aninhado em enrollment
+        else if (user.enrollment && user.enrollment.class) {
+          classValue = user.enrollment.class.name || user.enrollment.class;
         }
 
         return {
@@ -74,12 +74,13 @@ export const studentsService = {
           phone: user.phone || '',
           status: user.status || 'active',
           role: user.role || 'student',
-          matricula: user.matricula,
-          
-          enrollmentNumber: enrollmentValue,
-          className: className,
-          
-          grades: Array.isArray(user.grades) ? user.grades : [] 
+
+          // Mapeamos para as propriedades que o frontend espera
+          matricula: enrollmentValue,
+          enrollment: enrollmentValue, // Redundância para garantir compatibilidade
+          class: classValue, // Aqui garantimos que a string da turma vá para o campo certo
+
+          grades: Array.isArray(user.grades) ? user.grades : []
         };
       });
     } catch (error: any) {
@@ -87,14 +88,14 @@ export const studentsService = {
       throw error;
     }
   },
-  
+
   create: async (data: CreateStudentDto): Promise<any> => {
     try {
-      const payload = { 
-        ...data, 
+      const payload = {
+        ...data,
         matricula: data.enrollment,
-        password: data.password || 'Mudar@123', 
-        role: 'student' 
+        password: data.password || 'Mudar@123',
+        role: 'student'
       };
       const response = await api.post('/users', payload);
       return response.data;
@@ -107,11 +108,11 @@ export const studentsService = {
   update: async (id: string, data: UpdateStudentDto): Promise<any> => {
     try {
       const payload: any = { ...data };
-      
+
       if (data.enrollment !== undefined) {
         payload.matricula = data.enrollment;
       }
-      
+
       const response = await api.patch(`/users/${id}`, payload);
       return response.data;
     } catch (error: any) {
@@ -131,18 +132,19 @@ export const studentsService = {
 
   getTeachers: async (): Promise<User[]> => {
     try {
+      // Tenta buscar apenas professores, mas filtra no front por segurança
       const response = await api.get('/users');
-      
+
       let data = response.data;
       if (data && data.data && Array.isArray(data.data)) {
         data = data.data;
       }
-      
+
       if (!Array.isArray(data)) {
         return [];
       }
-      
-      return data.filter((user: any) => 
+
+      return data.filter((user: any) =>
         user.role === 'teacher' || user.role === 'professor'
       );
     } catch (error: any) {
@@ -155,11 +157,11 @@ export const studentsService = {
     try {
       const response = await api.get('/users');
       let data = response.data;
-      
+
       if (data && data.data && Array.isArray(data.data)) {
         data = data.data;
       }
-      
+
       return Array.isArray(data) ? data : [];
     } catch (error: any) {
       console.error("studentsService: Erro ao buscar usuários", error);
@@ -168,20 +170,20 @@ export const studentsService = {
   },
 
   getAllByRole: async (role: string): Promise<User[]> => {
-  try {
-    const response = await api.get('/users', { 
-      params: { role } 
-    });
-    
-    let data = response.data;
-    if (data && data.data && Array.isArray(data.data)) {
-      data = data.data;
+    try {
+      const response = await api.get('/users', {
+        params: { role }
+      });
+
+      let data = response.data;
+      if (data && data.data && Array.isArray(data.data)) {
+        data = data.data;
+      }
+
+      return Array.isArray(data) ? data : [];
+    } catch (error: any) {
+      console.error(`studentsService: Erro ao buscar usuários por role ${role}`, error);
+      throw error;
     }
-    
-    return Array.isArray(data) ? data : [];
-  } catch (error: any) {
-    console.error(`studentsService: Erro ao buscar usuários por role ${role}`, error);
-    throw error;
   }
-}
 };
