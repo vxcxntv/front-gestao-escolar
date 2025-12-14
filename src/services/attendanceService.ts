@@ -1,6 +1,24 @@
 import { api } from '../lib/api';
 import { PaginatedResponse, FilterParams } from '../types';
 
+// DTO para criar (Baseado no form: studentName, date, status, notes, classId)
+export interface CreateAttendanceDto {
+  studentName: string;
+  date: string;        // Formato ISO 'yyyy-MM-dd'
+  status: string;      // 'present' | 'absent' | 'late' | 'excused'
+  classId?: string;    // Opcional
+  notes?: string;
+}
+
+// DTO para atualizar
+export interface UpdateAttendanceDto {
+  studentName?: string;
+  date?: string;
+  status?: string;
+  classId?: string;
+  notes?: string;
+}
+
 export interface Attendance {
   id: string;
   studentId: string;
