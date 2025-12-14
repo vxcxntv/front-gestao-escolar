@@ -1,5 +1,6 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LucideIcon, GraduationCap, LogOut } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface MenuItem {
     path: string;
@@ -14,6 +15,14 @@ interface AppSidebarProps {
 
 export function AppSidebar({ menuItems, onMobileClose }: AppSidebarProps) {
     const location = useLocation();
+    const navigate = useNavigate();
+    const { logout } = useAuth();
+
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
+        onMobileClose?.();
+    };
 
     return (
         // Glassmorphism Dark para a Sidebar
@@ -62,7 +71,11 @@ export function AppSidebar({ menuItems, onMobileClose }: AppSidebarProps) {
             </nav>
 
             <div className="p-4 border-t border-white/10 bg-black/20">
-                <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors cursor-pointer group">
+                {/* ADICIONE onClick AQUI (ÚNICA ALTERAÇÃO VISÍVEL) */}
+                <div 
+                    onClick={handleLogout} // ADICIONE ESTE onClick
+                    className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors cursor-pointer group"
+                >
                     <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-pink-500 p-[2px]">
                         <div className="w-full h-full rounded-full bg-slate-900 flex items-center justify-center font-bold text-sm">
                             AD
