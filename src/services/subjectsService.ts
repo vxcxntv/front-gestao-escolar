@@ -1,6 +1,24 @@
 import { api } from '../lib/api';
 import { Subject, PaginatedResponse, FilterParams } from '../types';
 
+// DTO para criar (Baseado no form: name, code, credits, description, year)
+export interface CreateSubjectDto {
+  name: string;
+  code: string;
+  credits: number;
+  year?: number;       // Opcional, pois no filtro é 'gradeYear'
+  description?: string;
+}
+
+// DTO para atualizar (Tudo opcional)
+export interface UpdateSubjectDto {
+  name?: string;
+  code?: string;
+  credits?: number;
+  year?: number;
+  description?: string;
+}
+
 export const subjectsService = {
   getSubjects: async (params: FilterParams = {}) => {
     const response = await api.get<PaginatedResponse<Subject>>('/subjects', { params });
