@@ -43,7 +43,7 @@ export function Classes() {
       setErrorMessage('');
 
       // 1. Busca Turmas
-      const data = await classesService.getAll();
+      const data = await classesService.getClasses({ page: 1, limit: 100 });
       
       const adaptedClasses: ClassView[] = data.map((cls: any) => ({
         id: cls.id,

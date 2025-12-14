@@ -22,8 +22,8 @@ interface DataTableProps<T> {
   onSearch?: (search: string) => void;
   onRowClick?: (row: T) => void;
   actions?: Array<{
-    label: string;
-    icon: React.ReactNode;
+    label: string | ((row: T) => string);
+    icon: React.ReactNode | ((row: T) => React.ReactNode);
     onClick: (row: T) => void;
     variant?: 'default' | 'danger';
   }>;
@@ -254,7 +254,7 @@ export function DataTable<T extends Record<string, any>>({
                             key={index}
                             variant={action.variant === 'danger' ? 'ghost' : 'ghost'}
                             size="sm"
-                            onClick={(e) => {
+                            onClick={(e: React.MouseEvent) => {
                               e.stopPropagation();
                               action.onClick(row);
                             }}

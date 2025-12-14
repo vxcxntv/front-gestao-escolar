@@ -1,5 +1,5 @@
 import { api } from '../lib/api';
-import { User, CreateUserRequest, UpdateUserRequest, PaginatedResponse, FilterParams } from '../types';
+import { User, PaginatedResponse, FilterParams } from '../types';
 
 
 export interface CreateUserRequest {

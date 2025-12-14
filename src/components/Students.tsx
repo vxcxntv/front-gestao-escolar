@@ -30,9 +30,9 @@ export function Students() {
   useEffect(() => {
     const loadClasses = async () => {
       try {
-        const data = await classesService.getAll();
+        const response = await classesService.getClasses();
         // Ordena alfabeticamente pelo nome da turma
-        const sortedClasses = data.sort((a: any, b: any) => 
+        const sortedClasses = response.sort((a: any, b: any) => 
           a.name.localeCompare(b.name)
         );
         setClassesList(sortedClasses);

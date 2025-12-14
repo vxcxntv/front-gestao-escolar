@@ -1,6 +1,3 @@
-// types/index.ts
-
-// Tipos principais
 export interface User {
   id: string;
   name: string;
@@ -88,7 +85,7 @@ export interface Announcement {
   authorId: string;
   authorName: string;
   priority: 'low' | 'medium' | 'high';
-  targetAudience?: ('all' | 'students' | 'teachers' | 'parents')[];
+  targetAudience?: ('all' | 'students' | 'teachers' | 'guardian')[];
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;
@@ -331,7 +328,7 @@ export interface CreateAnnouncementDto {
   title: string;
   content: string;
   priority: 'low' | 'medium' | 'high';
-  targetAudience?: ('all' | 'students' | 'teachers' | 'parents')[];
+  targetAudience?: ('all' | 'students' | 'teachers' | 'guardian')[];
   expiresAt?: string;
 }
 
@@ -339,7 +336,7 @@ export interface UpdateAnnouncementDto {
   title?: string;
   content?: string;
   priority?: 'low' | 'medium' | 'high';
-  targetAudience?: ('all' | 'students' | 'teachers' | 'parents')[];
+  targetAudience?: ('all' | 'students' | 'teachers' | 'guardian')[];
   isPublished?: boolean;
   expiresAt?: string;
 }
@@ -438,7 +435,6 @@ export interface AttendanceBatchDto {
     notes?: string;
   }>;
 }
-
 // Calendar
 export interface CalendarEvent {
   id: string;

@@ -3,7 +3,8 @@ import { BookOpen, Plus, Filter, Users, Clock, Edit, Trash2, Eye,
   GraduationCap, Search } from 'lucide-react';
 import { DataTable } from '../components/ui/DataTable';
 import { Button } from '../components/ui/Button';
-import { subjectsService, type Subject } from '../services/subjectsService';
+import { subjectsService } from '../services/subjectsService';
+import { Subject } from '../types/index'
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 

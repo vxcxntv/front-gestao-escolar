@@ -26,7 +26,7 @@ export function AttendancePage() {
   const loadClasses = async () => {
     try {
       const response = await classesService.getClasses({ page: 1, limit: 100 });
-      setClasses(response.data);
+      setClasses(response);
     } catch (error) {
       console.error('Erro ao carregar turmas:', error);
     }
