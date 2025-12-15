@@ -1,23 +1,6 @@
 import { api } from '../lib/api';
-import { PaginatedResponse, FilterParams } from '../types';
 
-// DTO para criar (Baseado no form: studentName, date, status, notes, classId)
-export interface CreateAttendanceDto {
-  studentName: string;
-  date: string;        // Formato ISO 'yyyy-MM-dd'
-  status: string;      // 'present' | 'absent' | 'late' | 'excused'
-  classId?: string;    // Opcional
-  notes?: string;
-}
-
-// DTO para atualizar
-export interface UpdateAttendanceDto {
-  studentName?: string;
-  date?: string;
-  status?: string;
-  classId?: string;
-  notes?: string;
-}
+export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
 export interface Attendance {
   id: string;
@@ -26,48 +9,71 @@ export interface Attendance {
   classId: string;
   className?: string;
   date: string;
-  status: 'present' | 'absent' | 'late' | 'excused';
+  status: AttendanceStatus;
   notes?: string;
 }
 
-export interface AttendanceBatch {
-  classId: string;
+export interface CreateAttendanceDto {
+  studentName: string;
   date: string;
-  attendances: Array<{
-    studentId: string;
-    status: 'present' | 'absent' | 'late' | 'excused';
-    notes?: string;
-  }>;
+  status: AttendanceStatus;
+  classId: string; // Agora obrigatório
+  notes?: string;
 }
 
 export const attendanceService = {
-  getAttendances: async (params: FilterParams = {}) => {
-    const response = await api.get<PaginatedResponse<Attendance>>('/attendances', { params });
-    return response.data;
+  getAll: async (params: any = {}) => {
+    try {
+      const response = await api.get('/attendances', { params });
+      
+      // Tratamento robusto para diferentes formatos de resposta
+      const data = response.data;
+      if (data && Array.isArray(data.data)) {
+        return data.data; 
+      }
+      return Array.isArray(data) ? data : [];
+    } catch (error: any) {
+      console.error("attendanceService: Erro ao buscar frequências", error);
+      throw error;
+    }
   },
 
-  getStudentAttendances: async (studentId: string) => {
-    const response = await api.get<Attendance[]>(`/attendances/students/${studentId}`);
-    return response.data;
+  getById: async (id: string): Promise<Attendance> => {
+    try {
+      const response = await api.get(`/attendances/${id}`);
+      return response.data;
+    } catch (error: any) {
+      console.error(`attendanceService: Erro ao buscar frequência ${id}`, error);
+      throw error;
+    }
   },
 
-  getClassAttendanceSummary: async (classId: string) => {
-    const response = await api.get<any>(`/attendances/classes/${classId}/summary`);
-    return response.data;
+  create: async (data: CreateAttendanceDto): Promise<Attendance> => {
+    try {
+      const response = await api.post('/attendances', data);
+      return response.data;
+    } catch (error: any) {
+      console.error("attendanceService: Erro ao registrar frequência", error);
+      throw error;
+    }
   },
 
-  createAttendanceBatch: async (data: AttendanceBatch) => {
-    const response = await api.post<Attendance[]>('/attendances', data);
-    return response.data;
+  update: async (id: string, data: Partial<Attendance>): Promise<Attendance> => {
+    try {
+      const response = await api.patch(`/attendances/${id}`, data);
+      return response.data;
+    } catch (error: any) {
+      console.error(`attendanceService: Erro ao atualizar frequência ${id}`, error);
+      throw error;
+    }
   },
 
-  updateAttendance: async (id: string, data: Partial<Attendance>) => {
-    const response = await api.patch<Attendance>(`/attendances/${id}`, data);
-    return response.data;
-  },
-
-  deleteAttendance: async (id: string) => {
-    const response = await api.delete<void>(`/attendances/${id}`);
-    return response.data;
+  delete: async (id: string): Promise<void> => {
+    try {
+      await api.delete(`/attendances/${id}`);
+    } catch (error: any) {
+      console.error(`attendanceService: Erro ao deletar frequência ${id}`, error);
+      throw error;
+    }
   }
 };

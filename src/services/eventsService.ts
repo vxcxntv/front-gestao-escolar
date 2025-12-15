@@ -1,5 +1,4 @@
 import { api } from '../lib/api';
-import { PaginatedResponse, FilterParams } from '../types';
 
 export interface Event {
   id: string;
@@ -12,32 +11,67 @@ export interface Event {
   location?: string;
   organizer?: string;
   participants?: string[];
-  createdAt: string;
+  createdAt?: string;
 }
 
 export const eventsService = {
-  getEvents: async (params: FilterParams = {}) => {
-    const response = await api.get<PaginatedResponse<Event>>('/events', { params });
-    return response.data;
+  getAll: async (params?: any): Promise<Event[]> => {
+    try {
+      const response = await api.get('/events', { params });
+      
+      // Tratamento para garantir array, independente do formato da API (paginado ou não)
+      let data = response.data;
+      if (data && data.data && Array.isArray(data.data)) {
+        data = data.data;
+      }
+
+      if (Array.isArray(data)) {
+        return data;
+      }
+      return [];
+    } catch (error: any) {
+      console.error("eventsService: Erro ao buscar eventos", error);
+      // Retorna array vazio em caso de erro para não quebrar a UI
+      return []; 
+    }
   },
 
-  getEvent: async (id: string) => {
-    const response = await api.get<Event>(`/events/${id}`);
-    return response.data;
+  getById: async (id: string): Promise<Event> => {
+    try {
+      const response = await api.get(`/events/${id}`);
+      return response.data;
+    } catch (error: any) {
+      console.error(`eventsService: Erro ao buscar evento ${id}`, error);
+      throw error;
+    }
   },
 
-  createEvent: async (data: Omit<Event, 'id' | 'createdAt'>) => {
-    const response = await api.post<Event>('/events', data);
-    return response.data;
+  create: async (data: any): Promise<Event> => {
+    try {
+      const response = await api.post('/events', data);
+      return response.data;
+    } catch (error: any) {
+      console.error("eventsService: Erro ao criar evento", error);
+      throw error;
+    }
   },
 
-  updateEvent: async (id: string, data: Partial<Event>) => {
-    const response = await api.patch<Event>(`/events/${id}`, data);
-    return response.data;
+  update: async (id: string, data: any): Promise<Event> => {
+    try {
+      const response = await api.patch(`/events/${id}`, data);
+      return response.data;
+    } catch (error: any) {
+      console.error(`eventsService: Erro ao atualizar evento ${id}`, error);
+      throw error;
+    }
   },
 
-  deleteEvent: async (id: string) => {
-    const response = await api.delete<void>(`/events/${id}`);
-    return response.data;
+  delete: async (id: string): Promise<void> => {
+    try {
+      await api.delete(`/events/${id}`);
+    } catch (error: any) {
+      console.error(`eventsService: Erro ao deletar evento ${id}`, error);
+      throw error;
+    }
   }
 };

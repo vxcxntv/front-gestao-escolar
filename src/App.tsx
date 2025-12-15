@@ -13,7 +13,7 @@ import { Teachers } from './components/Teachers';
 
 // Novas páginas que criamos
 import { AttendancePage } from './components/Attendance';
-import { FinancePage } from './components/Finance';
+import { Finance } from './components/Finance';
 import { EventsPage } from './components/Events';
 import { ReportsPage } from './components/Reports';
 import { SubjectsPage } from './components/Subjects';
@@ -70,7 +70,8 @@ export default function App() {
               <Route path="/attendance" element={<AttendancePage />} />
               
               {/* Módulo Financeiro */}
-              <Route path="/finance" element={<FinancePage />} />
+              <Route path="/finance" element={<Finance
+               />} />
               
               {/* Módulo Comunicação */}
               <Route path="/announcements" element={<Announcements />} />

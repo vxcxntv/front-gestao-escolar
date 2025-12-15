@@ -1,231 +1,370 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  CheckCircle, XCircle, Clock, Filter,
-  Plus, Download, Calendar as CalendarIcon, Save, X, Search, SlidersHorizontal, Loader2
+  CheckCircle, XCircle, Clock, Filter, Plus, Download, 
+  Calendar as CalendarIcon, Loader2, Search, Edit2, Trash2, X, AlertCircle 
 } from 'lucide-react';
-import { DataTable } from '../components/ui/DataTable';
-import { attendanceService, type Attendance } from '../services/attendanceService';
+import { attendanceService, Attendance, AttendanceStatus } from '../services/attendanceService';
 import { classesService } from '../services/classesService';
 import { format, parseISO } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+
+// Interface ajustada para o Backend (Batch)
+interface FormDataState {
+  studentId: string;
+  classId: string;
+  subjectId: string; // Obrigatório no seu DTO
+  date: string;
+  status: AttendanceStatus;
+  notes: string;
+}
 
 export function AttendancePage() {
-  // --- ESTADOS ---
+  // --- Estados ---
   const [attendances, setAttendances] = useState<Attendance[]>([]);
   const [classes, setClasses] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false); // Estado de salvamento
   
-  const [page, setPage] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
-  const [limit, setLimit] = useState(10);
-  const [searchTerm, setSearchTerm] = useState('');
+  // Estados de Interface
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null); // Backend usa number no update/delete (:id)
 
+  // Filtros
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedClass, setSelectedClass] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
-  const [statusFilter, setStatusFilter] = useState<string>('all'); 
+  const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  const [showModal, setShowModal] = useState(false);
-  const [showFilterModal, setShowFilterModal] = useState(false);
-
-  const [formData, setFormData] = useState({
-    studentName: '',
+  // Form State
+  const [formData, setFormData] = useState<FormDataState>({
+    studentId: '',
     classId: '',
+    subjectId: '', 
     date: format(new Date(), 'yyyy-MM-dd'),
     status: 'present',
     notes: ''
   });
 
+  // --- Carregamento ---
   useEffect(() => {
     loadClasses();
+  }, []);
+
+  useEffect(() => {
     loadAttendances();
-  }, [page, limit, selectedClass, selectedDate, searchTerm, statusFilter]);
+  }, [selectedClass, selectedDate, statusFilter]);
 
   const loadClasses = async () => {
     try {
-      const response = await classesService.getClasses({ page: 1, limit: 100 });
+      // Removemos page/limit pois causavam erro, assumindo que getClasses traga tudo ou tenha padrão
+      const response = await classesService.getClasses(); 
       setClasses(Array.isArray(response) ? response : (response as any).data || []);
     } catch (error) {
-      console.error('Erro turmas:', error);
-      setClasses([]);
+      console.error('Erro ao buscar turmas:', error);
     }
   };
 
   const loadAttendances = async () => {
     setIsLoading(true);
     try {
+      // Ajuste os parâmetros conforme seu FilterAttendanceDto
       const params: any = {
-        page, limit, 
         classId: selectedClass || undefined,
         date: selectedDate || undefined,
-        search: searchTerm || undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined
+        // disciplineId: ... (se tiver filtro de disciplina)
       };
-      const response = await attendanceService.getAttendances(params);
-      let data = response.data || [];
+      
+      const data = await attendanceService.getAll(params);
+      let loadedData = Array.isArray(data) ? data : (data as any).data || [];
+
+      // Filtro local de status se o backend não filtrar
       if (statusFilter !== 'all') {
-         data = data.filter((item: Attendance) => item.status === statusFilter);
+        loadedData = loadedData.filter((a: any) => a.status === statusFilter);
       }
-      setAttendances(data);
-      setTotalItems(response.total || data.length);
+
+      setAttendances(loadedData);
     } catch (error) {
-      console.error('Erro frequencias:', error);
+      console.error('Erro ao buscar frequências:', error);
       setAttendances([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSearch = (value: string) => { setSearchTerm(value); setPage(1); };
+  const filteredAttendances = attendances.filter(item => 
+    (item.studentName?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+  );
 
+  // --- AÇÃO DE SALVAR (CRÍTICO) ---
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    
+    try {
+      // 1. Validação
+      if (!formData.classId) throw new Error("A Turma é obrigatória.");
+      if (!formData.subjectId) throw new Error("O ID da Disciplina (Subject) é obrigatório.");
+      if (!formData.studentId) throw new Error("O ID do Aluno é obrigatório.");
+
+      // 2. Montagem do Payload (Estrutura Batch)
+      // O backend espera { classId, subjectId, date, presences: [] }
+      const payload = {
+        classId: formData.classId,
+        subjectId: formData.subjectId,
+        date: formData.date,
+        presences: [
+          {
+            studentId: formData.studentId,
+            status: formData.status,
+            notes: formData.notes
+          }
+        ]
+      };
+
+      console.log("Enviando Payload:", payload); // Para debug
+
+      if (editingId) {
+        // Update é rota individual: PATCH /attendances/:id
+        // O payload de update é diferente (UpdateAttendanceDto), geralmente só status/notes
+        const updatePayload = {
+            status: formData.status,
+            notes: formData.notes
+        };
+        await attendanceService.update(editingId.toString(), updatePayload);
+      } else {
+        // Create é rota Batch: POST /attendances
+        await attendanceService.create(payload as any);
+      }
+      
+      setShowModal(false);
+      loadAttendances();
+      alert("Sucesso! Registro salvo.");
+
+    } catch (error: any) {
+      console.error("Erro ao salvar:", error);
+      const msg = error.response?.data?.message;
+      if (Array.isArray(msg)) {
+         alert(`Erros:\n- ${msg.join('\n- ')}`);
+      } else {
+         alert(`Erro: ${msg || error.message}`);
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: any) => {
+    if (!confirm("Excluir este registro?")) return;
+    try {
+      await attendanceService.delete(id);
+      setAttendances(prev => prev.filter(a => a.id !== id));
+    } catch (error: any) {
+      alert("Erro ao excluir. Verifique suas permissões.");
+    }
+  };
+
+  const openModal = (attendance?: Attendance) => {
+    if (attendance) {
+      // @ts-ignore - assumindo que seu attendance tenha id numérico ou string compatível
+      setEditingId(attendance.id);
+      setFormData({
+        studentId: attendance.studentId || '', 
+        classId: attendance.classId,
+        subjectId: '', // Num update simples, talvez não precise enviar subjectId, ou precise recuperar
+        date: attendance.date.split('T')[0],
+        status: attendance.status,
+        notes: attendance.notes || ''
+      });
+    } else {
+      setEditingId(null);
+      setFormData({
+        studentId: '',
+        classId: selectedClass || '',
+        subjectId: '',
+        date: selectedDate || format(new Date(), 'yyyy-MM-dd'),
+        status: 'present',
+        notes: ''
+      });
+    }
+    setShowModal(true);
+  };
+
+  // --- Helpers Visuais ---
   const handleExport = () => {
     const header = ["Aluno", "Turma", "Data", "Status", "Observações"];
     let csvContent = header.join(",") + "\n";
-    if (attendances && attendances.length > 0) {
-        const rows = attendances.map(a => [
-            `"${a.studentName}"`, `"${a.className || '-'}"`, format(parseISO(a.date), 'dd/MM/yyyy'), getStatusText(a.status), `"${a.notes || ''}"`
-        ]);
-        csvContent += rows.map(row => row.join(",")).join("\n");
+    if (filteredAttendances.length > 0) {
+      const rows = filteredAttendances.map(a => [
+        `"${a.studentName}"`, `"${a.className || '-'}"`, 
+        format(parseISO(a.date), 'dd/MM/yyyy'), getStatusText(a.status), `"${a.notes || ''}"`
+      ]);
+      csvContent += rows.map(row => row.join(",")).join("\n");
     }
-    try {
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', `frequencia_${format(new Date(), 'dd-MM-yyyy')}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    } catch (err) { alert("Erro ao baixar."); }
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'frequencia.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  // --- SALVAR (CreateAttendanceDto) ---
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-
-    try {
-        // Payload compatível com CreateAttendanceDto
-        const payload = {
-            studentName: formData.studentName,
-            date: formData.date,
-            status: formData.status,
-            notes: formData.notes,
-            classId: selectedClass || undefined // Envia undefined se vazio, conforme DTO
-        };
-
-        await (attendanceService as any).create(payload);
-
-        alert(`Frequência registrada com sucesso!`);
-        setShowModal(false);
-        setFormData({ ...formData, studentName: '', notes: '' });
-        loadAttendances();
-
-    } catch (error) {
-        console.error("Erro ao salvar presença:", error);
-        alert("Erro ao salvar. Verifique o console.");
-    } finally {
-        setIsSaving(false);
+  const getStatusConfig = (status: string) => {
+    switch (status) {
+      case 'present': return { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', text: 'Presente' };
+      case 'absent': return { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', text: 'Faltou' };
+      case 'late': return { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', text: 'Atrasado' };
+      case 'excused': return { icon: CalendarIcon, color: 'text-blue-600', bg: 'bg-blue-100', text: 'Justificado' };
+      default: return { icon: CheckCircle, color: 'text-slate-600', bg: 'bg-slate-100', text: status };
     }
   };
+  const getStatusText = (status: string) => getStatusConfig(status).text;
 
-  const applyFilters = () => { setShowFilterModal(false); setPage(1); loadAttendances(); };
-  const getStatusIcon = (status: string) => { switch (status) { case 'present': return <CheckCircle className="w-5 h-5 text-green-500" />; case 'absent': return <XCircle className="w-5 h-5 text-red-500" />; case 'late': return <Clock className="w-5 h-5 text-amber-500" />; case 'excused': return <CalendarIcon className="w-5 h-5 text-blue-500" />; default: return null; } };
-  const getStatusText = (status: string) => { switch (status) { case 'present': return 'Presente'; case 'absent': return 'Faltou'; case 'late': return 'Atrasado'; case 'excused': return 'Justificado'; default: return status; } };
-
-  const columns = [
-    { key: 'studentName', header: 'Aluno', render: (value: string, row: Attendance) => <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center"><span className="text-sm font-medium text-indigo-600">{value?.charAt(0).toUpperCase()}</span></div><div><p className="font-medium text-slate-800">{value}</p><p className="text-xs text-slate-500">ID: {row.studentId}</p></div></div> },
-    { key: 'className', header: 'Turma' },
-    { key: 'date', header: 'Data', render: (v: string) => format(parseISO(v), 'dd/MM/yyyy', { locale: ptBR }) },
-    { key: 'status', header: 'Status', render: (value: string) => <div className="flex items-center gap-2">{getStatusIcon(value)}<span className={`px-2 py-1 rounded-full text-xs font-medium ${value==='present'?'bg-green-100 text-green-800':''} ${value==='absent'?'bg-red-100 text-red-800':''} ${value==='late'?'bg-amber-100 text-amber-800':''} ${value==='excused'?'bg-blue-100 text-blue-800':''}`}>{getStatusText(value)}</span></div> },
-    { key: 'notes', header: 'Observações', render: (v: string) => v || '-' }
-  ];
-  const actions = [ { label: 'Editar', icon: <CalendarIcon className="w-4 h-4" />, onClick: () => {}, variant: 'default' as const }, { label: 'Excluir', icon: <XCircle className="w-4 h-4" />, onClick: () => {}, variant: 'danger' as const } ];
+  const stats = {
+    total: filteredAttendances.length,
+    present: filteredAttendances.filter(a => a.status === 'present').length,
+    absent: filteredAttendances.filter(a => a.status === 'absent').length,
+    late: filteredAttendances.filter(a => a.status === 'late').length
+  };
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
+    <div className="animate-in fade-in duration-500 pb-10 space-y-6">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-20">
-        <div><h1 className="text-3xl font-bold text-slate-800 tracking-tight">Controle de Frequência</h1><p className="text-slate-500 mt-1">Registro e consulta de presenças e faltas</p></div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setShowModal(true)} className="cursor-pointer relative z-20 flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2.5 rounded-xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all transform hover:-translate-y-0.5 font-medium group">
-            <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" /><span>Registrar Frequência</span>
-          </button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Controle de Frequência</h1>
+          <p className="text-slate-500 mt-1">Gerencie presenças e faltas</p>
         </div>
-      </div>
-
-      {/* Card de Filtros Superiores */}
-      <div className="relative z-10">
-          <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl shadow-indigo-100/20 p-6">
-            <div className="flex flex-col md:flex-row items-end gap-4">
-              <div className="flex-1 w-full"><label className="block text-sm font-medium text-slate-700 mb-2">Turma</label><select className="w-full border border-slate-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white/50 cursor-pointer" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}><option value="">Todas as turmas</option>{classes.map((cls) => (<option key={cls.id} value={cls.id}>{cls.name}</option>))}</select></div>
-              <div className="flex-1 w-full"><label className="block text-sm font-medium text-slate-700 mb-2">Data</label><input type="date" className="w-full border border-slate-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white/50 cursor-pointer" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} /></div>
-              <div><button className="h-[42px] px-6 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 rounded-xl font-medium transition-colors cursor-pointer" onClick={() => setSelectedDate(format(new Date(), 'yyyy-MM-dd'))}>Hoje</button></div>
-            </div>
-          </div>
+        <button onClick={() => openModal()} className="group flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2.5 rounded-xl hover:shadow-lg font-medium">
+          <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" /> <span>Registrar</span>
+        </button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 relative z-10">
-        {[ { label: 'Total de Registros', value: totalItems.toString(), color: 'from-blue-500 to-cyan-400' }, { label: 'Presença (Média)', value: '85%', color: 'from-emerald-500 to-teal-400' }, { label: 'Faltas', value: '10%', color: 'from-red-500 to-pink-400' }, { label: 'Atrasos', value: '5%', color: 'from-amber-500 to-yellow-400' } ].map((stat, index) => (<div key={index} className="bg-white/70 backdrop-blur-xl rounded-2xl p-6 border border-white/50 shadow-xl shadow-indigo-100/20"><p className="text-slate-500 text-sm font-medium mb-2">{stat.label}</p><div className="flex items-end justify-between"><h3 className="text-2xl font-bold text-slate-800">{stat.value}</h3><div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} opacity-20`} /></div></div>))}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Total', value: stats.total, color: 'from-blue-500 to-cyan-400' },
+          { label: 'Presenças', value: stats.present, color: 'from-emerald-500 to-teal-400' },
+          { label: 'Faltas', value: stats.absent, color: 'from-red-500 to-pink-400' },
+          { label: 'Atrasos', value: stats.late, color: 'from-amber-500 to-yellow-400' }
+        ].map((stat, idx) => (
+          <div key={idx} className="bg-white/70 backdrop-blur-xl rounded-2xl p-5 border border-white/50 shadow-lg shadow-indigo-100/10">
+            <p className="text-slate-500 text-xs font-medium uppercase mb-1">{stat.label}</p>
+            <div className="flex items-end justify-between"><h3 className="text-2xl font-bold text-slate-800">{stat.value}</h3></div>
+          </div>
+        ))}
       </div>
 
-      {/* Barra de Ação Inferior */}
-      <div className="relative z-10 bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl shadow-indigo-100/20 p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-xl"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" /><input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => handleSearch(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white/50 transition-all" /></div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowFilterModal(true)} className={`px-4 py-2 border rounded-lg font-medium transition-colors flex items-center gap-2 cursor-pointer ${statusFilter !== 'all' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-300 hover:bg-slate-50 text-slate-700'}`}><Filter className="w-4 h-4" />{statusFilter !== 'all' ? 'Filtro Ativo' : 'Filtros'}</button>
-            <button onClick={handleExport} className="px-4 py-2 border border-slate-300 bg-white hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 text-slate-700 rounded-lg font-medium transition-colors flex items-center gap-2 cursor-pointer"><Download className="w-4 h-4" />Exportar</button>
-          </div>
+      {/* Filtros */}
+      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl p-5 flex flex-col md:flex-row gap-4 items-end md:items-center">
+        <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div><label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Buscar Aluno</label><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Nome..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" /></div></div>
+          <div><label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Filtrar Turma</label><select className="w-full px-3 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}><option value="">Todas</option>{classes.map((cls) => (<option key={cls.id} value={cls.id}>{cls.name}</option>))}</select></div>
+          <div><label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Filtrar Data</label><input type="date" className="w-full px-3 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} /></div>
         </div>
+        <div className="flex gap-2"><button onClick={handleExport} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 text-sm font-medium flex items-center gap-2"><Download className="w-4 h-4" /> Exportar</button></div>
       </div>
 
       {/* Tabela */}
-      <div className="relative z-0">
-        <DataTable columns={columns} data={attendances} totalItems={totalItems} currentPage={page} itemsPerPage={limit} onPageChange={setPage} onItemsPerPageChange={setLimit} onSearch={handleSearch} actions={actions} isLoading={isLoading} />
+      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl overflow-hidden flex flex-col">
+        {isLoading ? (
+          <div className="p-20 flex justify-center"><Loader2 className="w-10 h-10 animate-spin text-indigo-500" /></div>
+        ) : filteredAttendances.length === 0 ? (
+          <div className="p-12 text-center text-slate-400 flex flex-col items-center"><AlertCircle className="w-10 h-10 mb-2 opacity-50" /><p>Nenhum registro encontrado.</p></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50/50 text-slate-500 text-xs uppercase font-semibold text-left">
+                <tr><th className="px-6 py-4">Aluno</th><th className="px-6 py-4">Data</th><th className="px-6 py-4">Status</th><th className="px-6 py-4">Observações</th><th className="px-6 py-4 text-right">Ações</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100/50">
+                {filteredAttendances.map((item) => {
+                  const statusConfig = getStatusConfig(item.status);
+                  return (
+                    <tr key={item.id} className="hover:bg-indigo-50/30 transition-colors group">
+                      <td className="px-6 py-4"><span className="font-semibold text-slate-800">{item.studentName || item.studentId}</span><br/><span className="text-xs text-slate-500">{item.className}</span></td>
+                      <td className="px-6 py-4 text-slate-600 text-sm">{format(parseISO(item.date), 'dd/MM/yyyy')}</td>
+                      <td className="px-6 py-4"><div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusConfig.bg} ${statusConfig.color}`}>{statusConfig.text}</div></td>
+                      <td className="px-6 py-4 text-slate-500 text-sm truncate max-w-[200px]">{item.notes || '-'}</td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openModal(item)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-lg"><Edit2 className="w-4 h-4" /></button>
+                          <button onClick={() => handleDelete(item.id)} className="p-2 text-slate-400 hover:text-red-600 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* MODAL REGISTRO */}
+      {/* Modal */}
       {showModal && (
-         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
-             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setShowModal(false)} />
-             <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-in zoom-in-95 scale-100">
-                <div className="bg-indigo-600 px-6 py-4 flex items-center justify-between shadow-md"><h2 className="text-white font-bold text-lg flex items-center gap-2"><CheckCircle className="w-5 h-5 text-indigo-200" /> Registrar Frequência</h2><button onClick={() => setShowModal(false)} className="text-white/70 hover:text-white p-1 rounded-full"><X className="w-5 h-5" /></button></div>
-                <form onSubmit={handleSave} className="p-6 space-y-4">
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Nome do Aluno</label><input type="text" required className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none" value={formData.studentName} onChange={e => setFormData({...formData, studentName: e.target.value})} /></div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Data</label><input type="date" required className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /></div>
-                        <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Status</label><select className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}><option value="present">Presente</option><option value="absent">Faltou</option><option value="late">Atrasado</option><option value="excused">Justificado</option></select></div>
-                    </div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Observações</label><textarea className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl resize-none h-20 outline-none" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} /></div>
-                    
-                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-2">
-                        <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 font-medium transition-colors">Cancelar</button>
-                        <button type="submit" disabled={isSaving} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium shadow-lg shadow-indigo-200 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
-                            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            {isSaving ? 'Salvando...' : 'Salvar'}
-                        </button>
-                    </div>
-                </form>
-             </div>
-         </div>
-      )}
-
-      {/* Modal Filtros */}
-      {showFilterModal && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowFilterModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 scale-100">
-            <div className="bg-white px-6 py-4 flex items-center justify-between border-b border-slate-100"><h2 className="text-slate-800 font-bold text-lg flex items-center gap-2"><SlidersHorizontal className="w-5 h-5 text-indigo-600" /> Filtrar por Status</h2><button onClick={() => setShowFilterModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button></div>
-            <div className="p-6 space-y-2">
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"><input type="radio" name="status" checked={statusFilter === 'all'} onChange={() => setStatusFilter('all')} className="w-4 h-4 text-indigo-600" /><span className="text-slate-700">Todos</span></label>
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-green-50 hover:border-green-100 cursor-pointer transition-colors"><input type="radio" name="status" checked={statusFilter === 'present'} onChange={() => setStatusFilter('present')} className="w-4 h-4 text-green-600" /><span className="text-slate-700">Apenas Presentes</span></label>
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-red-50 hover:border-red-100 cursor-pointer transition-colors"><input type="radio" name="status" checked={statusFilter === 'absent'} onChange={() => setStatusFilter('absent')} className="w-4 h-4 text-red-600" /><span className="text-slate-700">Apenas Faltas</span></label>
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-amber-50 hover:border-amber-100 cursor-pointer transition-colors"><input type="radio" name="status" checked={statusFilter === 'late'} onChange={() => setStatusFilter('late')} className="w-4 h-4 text-amber-600" /><span className="text-slate-700">Apenas Atrasos</span></label>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-slate-800">{editingId ? 'Editar' : 'Registrar'} Frequência</h2>
+              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100"><X className="w-5 h-5" /></button>
             </div>
-            <div className="flex justify-end gap-2 px-6 py-4 bg-slate-50 border-t border-slate-100"><button onClick={() => setShowFilterModal(false)} className="px-4 py-2 text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">Cancelar</button><button onClick={applyFilters} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-md">Aplicar Filtros</button></div>
+            
+            <form onSubmit={handleSubmit} className="space-y-4">
+              
+              {/* Turma e Matéria */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Turma *</label>
+                    <select required className="w-full border border-slate-200 p-2.5 rounded-xl text-sm bg-white" value={formData.classId} onChange={e => setFormData({ ...formData, classId: e.target.value })}>
+                    <option value="">Selecione...</option>
+                    {classes.map((cls) => (<option key={cls.id} value={cls.id}>{cls.name}</option>))}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">ID da Disciplina *</label>
+                    <input 
+                      required 
+                      placeholder="UUID"
+                      className="w-full border border-slate-200 p-2.5 rounded-xl text-sm outline-none" 
+                      value={formData.subjectId} 
+                      onChange={e => setFormData({ ...formData, subjectId: e.target.value })} 
+                    />
+                </div>
+              </div>
+
+              {/* Aluno */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">ID do Aluno *</label>
+                <input 
+                  required 
+                  placeholder="Cole o ID do aluno aqui"
+                  className="w-full border border-slate-200 p-2.5 rounded-xl text-sm outline-none font-mono text-slate-600" 
+                  value={formData.studentId} 
+                  onChange={e => setFormData({ ...formData, studentId: e.target.value })} 
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Data</label><input type="date" required className="w-full border border-slate-200 p-2.5 rounded-xl text-sm" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                  <select className="w-full border border-slate-200 p-2.5 rounded-xl text-sm bg-white" value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value as AttendanceStatus })}>
+                    <option value="present">Presente</option><option value="absent">Faltou</option><option value="late">Atrasado</option><option value="excused">Justificado</option>
+                  </select>
+                </div>
+              </div>
+
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Observações</label><textarea className="w-full border border-slate-200 p-2.5 rounded-xl text-sm resize-none h-24" value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} /></div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-2">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 text-sm font-medium">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 flex items-center gap-2 text-sm font-medium shadow-lg shadow-indigo-500/20 disabled:opacity-70">
+                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />} {isSaving ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
