@@ -11,6 +11,11 @@ export interface Class {
     name: string;
     email?: string;
   };
+  subjects?: { 
+    id: string; 
+    name: string; 
+    code: string; 
+  }[];
   students?: any[];
   enrollments?: any[];
   schedule?: string;
@@ -69,6 +74,7 @@ export const classesService = {
       console.error("classesService: Erro ao buscar turmas", error);
       throw error;
     }
+
   },
 
   getById: async (id: string): Promise<Class> => {
@@ -139,5 +145,14 @@ export const classesService = {
       console.error(`classesService: Erro ao remover aluno`, error);
       throw error;
     }
+  },
+
+  addSubject: async (classId: string, subjectId: string): Promise<void> => {
+    // O controller espera { subjectId } no body
+    await api.post(`/classes/${classId}/subjects`, { subjectId });
+  },
+
+  removeSubject: async (classId: string, subjectId: string): Promise<void> => {
+    await api.delete(`/classes/${classId}/subjects/${subjectId}`);
   }
 };

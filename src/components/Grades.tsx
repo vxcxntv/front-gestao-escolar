@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Download, ChevronDown, ChevronRight, FileSpreadsheet, Loader2, AlertCircle } from 'lucide-react';
 import { studentsService } from '../services/studentsService';
 import { gradesService } from '../services/gradesService';
-import { subjectsService } from '../services/subjectsService'; // Certifique-se de que a interface Subject está sendo importada daqui
+import { subjectsService } from '../services/subjectsService';
+import { classesService } from '../services/classesService';
 import { User } from '../types';
 
-// Definindo a interface Subject caso ela não esteja exportada do service
 interface Subject {
   id: string;
   name: string;
@@ -31,8 +31,9 @@ export function Grades() {
   // Listas vindas da API
   const [subjectsList, setSubjectsList] = useState<Subject[]>([]);
   const [studentsList, setStudentsList] = useState<User[]>([]);
+  const [classesList, setClassesList] = useState<any[]>([]); 
 
-  // Estados de Controle
+  // Estados de Controle da Tabela
   const [filterSubjectId, setFilterSubjectId] = useState(''); 
   const [expandedClasses, setExpandedClasses] = useState<string[]>([]);
   const [gradesData, setGradesData] = useState<GradeView[]>([]);
@@ -40,11 +41,12 @@ export function Grades() {
   // Loadings
   const [isLoadingSubjects, setIsLoadingSubjects] = useState(true);
   const [isLoadingGrades, setIsLoadingGrades] = useState(false);
-  
   const [isSaving, setIsSaving] = useState(false);
   const [errorType, setErrorType] = useState<'none' | 'auth' | 'connection'>('none');
 
-  // Dados para o formulário
+  // --- NOVOS ESTADOS PARA O MODAL ---
+  const [modalClassId, setModalClassId] = useState(''); // Estado para a turma selecionada no modal
+
   const [formData, setFormData] = useState({
     studentId: '',
     subjectId: '',
@@ -52,32 +54,38 @@ export function Grades() {
     description: '1º Bimestre'
   });
 
-  // 1. Efeito Inicial: Carrega as Disciplinas
+  // 1. Efeito Inicial
   useEffect(() => {
-    const loadSubjects = async () => {
+    const loadInitialData = async () => {
       try {
         setIsLoadingSubjects(true);
-        // CORREÇÃO AQUI: Mudado de .getAll() para .getSubjects()
-        const data = await subjectsService.getSubjects(); 
-        setSubjectsList(data);
+        const [subsData, classesData] = await Promise.all([
+            subjectsService.getSubjects({ limit: 100 }),
+            classesService.getClasses({ limit: 100 })
+        ]);
+        
+        setSubjectsList(subsData || []);
+        setClassesList(classesData || []);
 
-        // Se houver disciplinas, define a primeira como padrão
-        if (data && data.length > 0) {
-          setFilterSubjectId(data[0].id);
-          setFormData(prev => ({ ...prev, subjectId: data[0].id }));
+        if (subsData && subsData.length > 0) {
+          // Define filtros da tabela
+          setFilterSubjectId(subsData[0].id);
+          
+          // Define valor inicial do formulário do modal
+          setFormData(prev => ({ ...prev, subjectId: subsData[0].id }));
         }
       } catch (err) {
-        console.error("Erro ao carregar disciplinas", err);
+        console.error("Erro ao carregar dados iniciais", err);
         setErrorType('connection');
       } finally {
         setIsLoadingSubjects(false);
       }
     };
 
-    loadSubjects();
+    loadInitialData();
   }, []);
 
-  // 2. Função que busca as notas
+  // 2. Busca notas
   const fetchGrades = async () => {
     if (!filterSubjectId) return; 
 
@@ -139,7 +147,6 @@ export function Grades() {
     }
   };
 
-  // 3. Efeito Secundário: Recarrega as notas quando muda o filtro de matéria
   useEffect(() => {
     fetchGrades();
   }, [filterSubjectId]);
@@ -157,6 +164,12 @@ export function Grades() {
     acc[grade.class].push(grade);
     return acc;
   }, {} as Record<string, GradeView[]>);
+
+  const visibleClasses = Object.entries(gradesByClass).filter(([className]) => {
+    const classObj = classesList.find(c => c.name === className);
+    if (!classObj || !classObj.subjects) return true;
+    return classObj.subjects.some((s: any) => s.id === filterSubjectId);
+  });
 
   const toggleClass = (className: string) => {
     setExpandedClasses(prev =>
@@ -180,6 +193,7 @@ export function Grades() {
       });
       setShowModal(false);
       setFormData(prev => ({ ...prev, value: '' })); 
+      setModalClassId(''); // Reseta a turma do modal
       alert("Nota lançada com sucesso!");
       fetchGrades(); 
     } catch (err) {
@@ -202,6 +216,31 @@ export function Grades() {
     return classGrades.length > 0 ? (sum / classGrades.length).toFixed(2) : '0.00';
   };
 
+  // --- LÓGICA DE FILTRO DO MODAL ---
+  
+  // 1. Filtra Turmas disponíveis para a disciplina selecionada no modal
+  const modalAvailableClasses = classesList.filter(cls => {
+    if (!formData.subjectId) return false;
+    // Se a turma não tiver subjects, não mostra (ou mostra tudo, depende da regra)
+    if (!cls.subjects) return false; 
+    return cls.subjects.some((s: any) => s.id === formData.subjectId);
+  });
+
+  // 2. Filtra Alunos da turma selecionada no modal
+  const modalAvailableStudents = studentsList.filter(student => {
+    if (!modalClassId) return false;
+    // Encontra o nome da turma baseado no ID selecionado
+    const selectedClassObj = classesList.find(c => c.id === modalClassId);
+    // Compara o nome da turma do aluno com o nome da turma selecionada
+    return selectedClassObj && student.class === selectedClassObj.name;
+  });
+
+  const handleModalOpen = () => {
+    setModalClassId(''); // Reseta turma
+    setFormData(prev => ({ ...prev, studentId: '', value: '' })); // Reseta aluno e valor
+    setShowModal(true);
+  };
+
   return (
     <div className="animate-in fade-in duration-500 space-y-6">
       {/* Header */}
@@ -216,7 +255,7 @@ export function Grades() {
             <span className="hidden sm:inline font-medium">Exportar</span>
           </button>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={handleModalOpen}
             disabled={isLoadingSubjects}
             className="group flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2.5 rounded-xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -227,6 +266,7 @@ export function Grades() {
         </div>
       </div>
 
+      {/* ... Alertas e Filtros da Tabela (Código igual ao anterior) ... */}
       {/* Alertas */}
       {errorType !== 'none' && (
         <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800 flex items-center gap-2">
@@ -235,7 +275,7 @@ export function Grades() {
         </div>
       )}
 
-      {/* Filtros */}
+      {/* Filtros da Tabela */}
       <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl shadow-indigo-100/10 p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="relative">
@@ -250,7 +290,7 @@ export function Grades() {
           </div>
           <div>
             <select 
-              className="w-full px-4 py-2.5 bg-white/50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-slate-600"
+              className="w-full px-4 py-2.5 bg-white/50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-slate-600 cursor-pointer"
               value={filterSubjectId}
               onChange={(e) => setFilterSubjectId(e.target.value)}
               disabled={isLoadingSubjects}
@@ -267,7 +307,7 @@ export function Grades() {
         </div>
       </div>
 
-      {/* Loading Principal */}
+      {/* Tabela de Notas */}
       {(isLoadingSubjects || isLoadingGrades) ? (
         <div className="p-20 flex justify-center items-center flex-col gap-3">
           <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
@@ -276,14 +316,15 @@ export function Grades() {
           </span>
         </div>
       ) : (
-        /* Tabela */
         <div className="space-y-4">
-          {Object.entries(gradesByClass).length === 0 ? (
+          {visibleClasses.length === 0 ? (
              <div className="text-center p-10 text-slate-500">
-               {subjectsList.length === 0 ? "Nenhuma disciplina cadastrada no sistema." : "Nenhum aluno encontrado."}
+               {subjectsList.length === 0 
+                 ? "Nenhuma disciplina cadastrada no sistema." 
+                 : "Nenhuma turma possui esta disciplina vinculada ou não há alunos com notas."}
              </div>
           ) : (
-             Object.entries(gradesByClass).map(([className, classGrades]) => {
+             visibleClasses.map(([className, classGrades]) => {
               const isExpanded = expandedClasses.includes(className);
               const classAverage = getClassAverage(classGrades);
 
@@ -305,7 +346,7 @@ export function Grades() {
                     </div>
                     <div className="flex items-center gap-6">
                       <div className="text-right hidden sm:block">
-                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Média ({classGrades[0]?.subject})</p>
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Média</p>
                         <span className={`px-3 py-1 rounded-full text-sm font-bold border ${getGradeColor(parseFloat(classAverage))}`}>
                           {classAverage}
                         </span>
@@ -373,14 +414,18 @@ export function Grades() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              {/* Select de Disciplina */}
+              
+              {/* 1. Selecionar Disciplina */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Disciplina</label>
                 <select 
                   required
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
                   value={formData.subjectId}
-                  onChange={(e) => setFormData({...formData, subjectId: e.target.value})}
+                  onChange={(e) => {
+                    setFormData({ ...formData, subjectId: e.target.value, studentId: '' });
+                    setModalClassId(''); // Reseta turma ao mudar disciplina
+                  }}
                   disabled={isLoadingSubjects}
                 >
                   <option value="">Selecione a disciplina...</option>
@@ -390,20 +435,51 @@ export function Grades() {
                 </select>
               </div>
 
-              {/* Select de Aluno */}
+              {/* 2. Selecionar Turma (NOVO CAMPO) */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Turma</label>
+                <select 
+                  required
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                  value={modalClassId}
+                  onChange={(e) => {
+                    setModalClassId(e.target.value);
+                    setFormData({ ...formData, studentId: '' }); // Reseta aluno ao mudar turma
+                  }}
+                  disabled={!formData.subjectId}
+                >
+                  <option value="">
+                    {formData.subjectId ? "Selecione a turma..." : "Escolha a disciplina primeiro"}
+                  </option>
+                  {modalAvailableClasses.map(cls => (
+                    <option key={cls.id} value={cls.id}>{cls.name}</option>
+                  ))}
+                </select>
+                {formData.subjectId && modalAvailableClasses.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-1">Nenhuma turma possui esta disciplina.</p>
+                )}
+              </div>
+
+              {/* 3. Selecionar Aluno (Filtrado) */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Aluno</label>
                 <select 
                   required
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none disabled:bg-slate-100 disabled:text-slate-400"
                   value={formData.studentId}
                   onChange={(e) => setFormData({...formData, studentId: e.target.value})}
+                  disabled={!modalClassId}
                 >
-                  <option value="">Selecione o aluno...</option>
-                  {studentsList.map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.class || 'Sem Turma'})</option>
+                  <option value="">
+                    {modalClassId ? "Selecione o aluno..." : "Escolha a turma primeiro"}
+                  </option>
+                  {modalAvailableStudents.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
+                {modalClassId && modalAvailableStudents.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-1">Nenhum aluno matriculado nesta turma.</p>
+                )}
               </div>
 
               {/* Select Bimestre */}
