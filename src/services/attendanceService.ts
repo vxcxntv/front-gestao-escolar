@@ -13,11 +13,13 @@ export interface Attendance {
   notes?: string;
 }
 
+// ATUALIZADO: Agora aceita matrícula e código da turma
 export interface CreateAttendanceDto {
-  studentName: string;
+  studentRegistration: string; // Matrícula
+  classCode: string;          // Código da Turma
+  subjectId: string;          // Mantive subjectId (caso ainda seja UUID), se for código, altere aqui também
   date: string;
   status: AttendanceStatus;
-  classId: string; // Agora obrigatório
   notes?: string;
 }
 
@@ -25,8 +27,6 @@ export const attendanceService = {
   getAll: async (params: any = {}) => {
     try {
       const response = await api.get('/attendances', { params });
-      
-      // Tratamento robusto para diferentes formatos de resposta
       const data = response.data;
       if (data && Array.isArray(data.data)) {
         return data.data; 
@@ -48,7 +48,8 @@ export const attendanceService = {
     }
   },
 
-  create: async (data: CreateAttendanceDto): Promise<Attendance> => {
+  // O tipo do parametro 'data' agora pode ser any para permitir a estrutura de Batch que você usa no front
+  create: async (data: any): Promise<Attendance> => {
     try {
       const response = await api.post('/attendances', data);
       return response.data;

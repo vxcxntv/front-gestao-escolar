@@ -44,25 +44,21 @@ export function Announcements() {
       const safeArray = Array.isArray(rawData) ? rawData : [];
 
       const adaptedData: Announcement[] = safeArray.map((item: any) => {
-        // 1. CORREÇÃO CRÍTICA DO AUTOR
-        // O backend manda um objeto author: { name: '...' }, o frontend precisa de uma string.
         let displayAuthor = 'Escola';
 
         if (item.author && typeof item.author === 'object' && item.author.name) {
-          displayAuthor = item.author.name; // Pega de dentro do objeto
+          displayAuthor = item.author.name;
         } else if (typeof item.author === 'string') {
           displayAuthor = item.author;
         } else if (item.authorName) {
           displayAuthor = item.authorName;
         }
 
-        // 2. Normalização de Categoria
         let safeCategory: Announcement['category'] = 'general';
         if (item.category && ['general', 'event', 'urgent', 'academic'].includes(item.category)) {
           safeCategory = item.category;
         }
 
-        // 3. Tratamento de Data
         let displayDate = new Date().toISOString();
         if (item.date) displayDate = item.date;
         else if (item.createdAt) displayDate = item.createdAt;
@@ -73,7 +69,7 @@ export function Announcements() {
           content: item.content || '',
           category: safeCategory,
           pinned: !!item.pinned,
-          authorDisplayName: displayAuthor, // Usamos essa propriedade segura na renderização
+          authorDisplayName: displayAuthor,
           date: displayDate
         };
       });
@@ -179,7 +175,6 @@ export function Announcements() {
             const config = categoryConfig[item.category] || categoryConfig.general;
             const CatIcon = config.icon;
 
-            // Tratamento de data seguro
             let dateStr = 'Data inválida';
             try {
               dateStr = new Date(item.date).toLocaleDateString('pt-BR');
@@ -201,7 +196,7 @@ export function Announcements() {
                     <div className="flex items-center gap-4 text-xs text-slate-400 font-medium">
                       <span className="flex items-center gap-1">
                         <User className="w-3.5 h-3.5" />
-                        {/* Aqui usamos a propriedade segura, não o objeto */}
+                        {}
                         {item.authorDisplayName}
                       </span>
                       <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {dateStr}</span>

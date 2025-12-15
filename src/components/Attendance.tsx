@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  CheckCircle, XCircle, Clock, Filter, Plus, Download, 
-  Calendar as CalendarIcon, Loader2, Search, Edit2, Trash2, X, AlertCircle 
+  CheckCircle, XCircle, Clock, Calendar as CalendarIcon, 
+  Loader2, Search, Edit2, Trash2, X, AlertCircle, Plus, Download, Filter 
 } from 'lucide-react';
 import { attendanceService, Attendance, AttendanceStatus } from '../services/attendanceService';
 import { classesService } from '../services/classesService';
 import { format, parseISO } from 'date-fns';
 
-// Interface ajustada para o Backend (Batch)
+// Interface alinhada com o Backend (UUIDs)
 interface FormDataState {
-  studentId: string;
-  classId: string;
-  subjectId: string; // Obrigatório no seu DTO
+  studentId: string;    // Backend exige UUID
+  classId: string;      // Backend exige UUID
+  subjectId: string;    // Backend exige UUID
   date: string;
   status: AttendanceStatus;
   notes: string;
@@ -26,7 +26,7 @@ export function AttendancePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null); // Backend usa number no update/delete (:id)
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,7 +37,7 @@ export function AttendancePage() {
   // Form State
   const [formData, setFormData] = useState<FormDataState>({
     studentId: '',
-    classId: '',
+    classId: '',          
     subjectId: '', 
     date: format(new Date(), 'yyyy-MM-dd'),
     status: 'present',
@@ -55,8 +55,8 @@ export function AttendancePage() {
 
   const loadClasses = async () => {
     try {
-      // Removemos page/limit pois causavam erro, assumindo que getClasses traga tudo ou tenha padrão
       const response = await classesService.getClasses(); 
+      // Assume que a resposta traz um array de objetos com { id, name }
       setClasses(Array.isArray(response) ? response : (response as any).data || []);
     } catch (error) {
       console.error('Erro ao buscar turmas:', error);
@@ -66,17 +66,14 @@ export function AttendancePage() {
   const loadAttendances = async () => {
     setIsLoading(true);
     try {
-      // Ajuste os parâmetros conforme seu FilterAttendanceDto
       const params: any = {
-        classId: selectedClass || undefined,
+        classId: selectedClass || undefined, 
         date: selectedDate || undefined,
-        // disciplineId: ... (se tiver filtro de disciplina)
       };
       
       const data = await attendanceService.getAll(params);
       let loadedData = Array.isArray(data) ? data : (data as any).data || [];
 
-      // Filtro local de status se o backend não filtrar
       if (statusFilter !== 'all') {
         loadedData = loadedData.filter((a: any) => a.status === statusFilter);
       }
@@ -94,44 +91,75 @@ export function AttendancePage() {
     (item.studentName?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
-  // --- AÇÃO DE SALVAR (CRÍTICO) ---
+  // --- Helpers Visuais ---
+  const getStatusConfig = (status: string) => {
+    switch (status) {
+      case 'present': return { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', text: 'Presente' };
+      case 'absent': return { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', text: 'Faltou' };
+      case 'late': return { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', text: 'Atrasado' };
+      case 'excused': return { icon: CalendarIcon, color: 'text-blue-600', bg: 'bg-blue-100', text: 'Justificado' };
+      default: return { icon: CheckCircle, color: 'text-slate-600', bg: 'bg-slate-100', text: status };
+    }
+  };
+  
+  const getStatusText = (status: string) => getStatusConfig(status).text;
+
+  const handleExport = () => {
+    const header = ["Aluno", "Turma", "Data", "Status", "Observações"];
+    let csvContent = header.join(",") + "\n";
+    if (filteredAttendances.length > 0) {
+      const rows = filteredAttendances.map(a => [
+        `"${a.studentName}"`, `"${a.className || '-'}"`, 
+        format(parseISO(a.date), 'dd/MM/yyyy'), getStatusText(a.status), `"${a.notes || ''}"`
+      ]);
+      csvContent += rows.map(row => row.join(",")).join("\n");
+    }
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'frequencia.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // --- AÇÃO DE SALVAR ---
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     
     try {
-      // 1. Validação
-      if (!formData.classId) throw new Error("A Turma é obrigatória.");
-      if (!formData.subjectId) throw new Error("O ID da Disciplina (Subject) é obrigatório.");
-      if (!formData.studentId) throw new Error("O ID do Aluno é obrigatório.");
+      // 1. Validação Simples
+      if (!formData.classId) throw new Error("Selecione uma Turma.");
+      if (!formData.subjectId) throw new Error("O ID da Disciplina (UUID) é obrigatório.");
+      if (!formData.studentId) throw new Error("O ID do Aluno (UUID) é obrigatório.");
 
-      // 2. Montagem do Payload (Estrutura Batch)
-      // O backend espera { classId, subjectId, date, presences: [] }
+      // 2. Montagem do Payload (Exatamente como o backend pediu no erro)
       const payload = {
-        classId: formData.classId,
+        classId: formData.classId, 
         subjectId: formData.subjectId,
         date: formData.date,
         presences: [
           {
-            studentId: formData.studentId,
-            status: formData.status,
-            notes: formData.notes
+            studentId: formData.studentId, 
+            status: formData.status
+            // Nota: 'notes' removido daqui conforme o erro anterior do backend
           }
         ]
       };
 
-      console.log("Enviando Payload:", payload); // Para debug
+      console.log("Enviando Payload:", payload);
 
       if (editingId) {
-        // Update é rota individual: PATCH /attendances/:id
-        // O payload de update é diferente (UpdateAttendanceDto), geralmente só status/notes
+        // Update
         const updatePayload = {
             status: formData.status,
             notes: formData.notes
         };
         await attendanceService.update(editingId.toString(), updatePayload);
       } else {
-        // Create é rota Batch: POST /attendances
+        // Create
         await attendanceService.create(payload as any);
       }
       
@@ -164,12 +192,11 @@ export function AttendancePage() {
 
   const openModal = (attendance?: Attendance) => {
     if (attendance) {
-      // @ts-ignore - assumindo que seu attendance tenha id numérico ou string compatível
-      setEditingId(attendance.id);
+      setEditingId(Number(attendance.id));
       setFormData({
         studentId: attendance.studentId || '', 
-        classId: attendance.classId,
-        subjectId: '', // Num update simples, talvez não precise enviar subjectId, ou precise recuperar
+        classId: attendance.classId, 
+        subjectId: '', 
         date: attendance.date.split('T')[0],
         status: attendance.status,
         notes: attendance.notes || ''
@@ -178,7 +205,7 @@ export function AttendancePage() {
       setEditingId(null);
       setFormData({
         studentId: '',
-        classId: selectedClass || '',
+        classId: selectedClass || '', 
         subjectId: '',
         date: selectedDate || format(new Date(), 'yyyy-MM-dd'),
         status: 'present',
@@ -187,38 +214,6 @@ export function AttendancePage() {
     }
     setShowModal(true);
   };
-
-  // --- Helpers Visuais ---
-  const handleExport = () => {
-    const header = ["Aluno", "Turma", "Data", "Status", "Observações"];
-    let csvContent = header.join(",") + "\n";
-    if (filteredAttendances.length > 0) {
-      const rows = filteredAttendances.map(a => [
-        `"${a.studentName}"`, `"${a.className || '-'}"`, 
-        format(parseISO(a.date), 'dd/MM/yyyy'), getStatusText(a.status), `"${a.notes || ''}"`
-      ]);
-      csvContent += rows.map(row => row.join(",")).join("\n");
-    }
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'frequencia.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const getStatusConfig = (status: string) => {
-    switch (status) {
-      case 'present': return { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', text: 'Presente' };
-      case 'absent': return { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', text: 'Faltou' };
-      case 'late': return { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', text: 'Atrasado' };
-      case 'excused': return { icon: CalendarIcon, color: 'text-blue-600', bg: 'bg-blue-100', text: 'Justificado' };
-      default: return { icon: CheckCircle, color: 'text-slate-600', bg: 'bg-slate-100', text: status };
-    }
-  };
-  const getStatusText = (status: string) => getStatusConfig(status).text;
 
   const stats = {
     total: filteredAttendances.length,
@@ -258,10 +253,33 @@ export function AttendancePage() {
 
       {/* Filtros */}
       <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl p-5 flex flex-col md:flex-row gap-4 items-end md:items-center">
-        <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-4 gap-4">
           <div><label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Buscar Aluno</label><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Nome..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" /></div></div>
-          <div><label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Filtrar Turma</label><select className="w-full px-3 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}><option value="">Todas</option>{classes.map((cls) => (<option key={cls.id} value={cls.id}>{cls.name}</option>))}</select></div>
+          <div>
+              <label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Filtrar Turma</label>
+              <select className="w-full px-3 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}>
+                  <option value="">Todas</option>
+                  {classes.map((cls) => (
+                    // Mostra o NOME, mas o valor é o ID (que o backend precisa)
+                    <option key={cls.id} value={cls.id}>{cls.name}</option>
+                  ))}
+              </select>
+          </div>
           <div><label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Filtrar Data</label><input type="date" className="w-full px-3 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} /></div>
+          
+          <div>
+            <label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Status</label>
+            <div className="relative">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+              <select className="w-full pl-9 pr-4 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="all">Todos</option>
+                <option value="present">Presentes</option>
+                <option value="absent">Faltas</option>
+                <option value="late">Atrasos</option>
+              </select>
+            </div>
+          </div>
+
         </div>
         <div className="flex gap-2"><button onClick={handleExport} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 text-sm font-medium flex items-center gap-2"><Download className="w-4 h-4" /> Exportar</button></div>
       </div>
@@ -317,32 +335,45 @@ export function AttendancePage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Turma *</label>
-                    <select required className="w-full border border-slate-200 p-2.5 rounded-xl text-sm bg-white" value={formData.classId} onChange={e => setFormData({ ...formData, classId: e.target.value })}>
-                    <option value="">Selecione...</option>
-                    {classes.map((cls) => (<option key={cls.id} value={cls.id}>{cls.name}</option>))}
+                    <select 
+                      required 
+                      className="w-full border border-slate-200 p-2.5 rounded-xl text-sm bg-white" 
+                      value={formData.classId} 
+                      onChange={e => setFormData({ ...formData, classId: e.target.value })}
+                      disabled={!!editingId} 
+                    >
+                    <option value="">Selecione a Turma...</option>
+                    {/* AQUI ESTÁ A MUDANÇA: Exibe o nome (cls.name), mas usa o ID no value */}
+                    {classes.map((cls) => (
+                        <option key={cls.id} value={cls.id}>
+                            {cls.name}
+                        </option>
+                    ))}
                     </select>
                 </div>
                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">ID da Disciplina *</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">ID da Disciplina (UUID) *</label>
                     <input 
                       required 
-                      placeholder="UUID"
-                      className="w-full border border-slate-200 p-2.5 rounded-xl text-sm outline-none" 
+                      placeholder="Cole o UUID da disciplina"
+                      className="w-full border border-slate-200 p-2.5 rounded-xl text-sm outline-none font-mono" 
                       value={formData.subjectId} 
-                      onChange={e => setFormData({ ...formData, subjectId: e.target.value })} 
+                      onChange={e => setFormData({ ...formData, subjectId: e.target.value })}
+                      disabled={!!editingId} 
                     />
                 </div>
               </div>
 
-              {/* Aluno */}
+              {/* Aluno - UUID */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">ID do Aluno *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">ID do Aluno (UUID) *</label>
                 <input 
                   required 
-                  placeholder="Cole o ID do aluno aqui"
+                  placeholder="Cole o UUID do aluno"
                   className="w-full border border-slate-200 p-2.5 rounded-xl text-sm outline-none font-mono text-slate-600" 
                   value={formData.studentId} 
                   onChange={e => setFormData({ ...formData, studentId: e.target.value })} 
+                  disabled={!!editingId} 
                 />
               </div>
               
