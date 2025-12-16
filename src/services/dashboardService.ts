@@ -4,16 +4,25 @@ import {
     AdminDashboardStats,
     TeacherDashboardStats,
     StudentDashboardStats,
-    Event
+    Event // Certifique-se de que a interface Event no types.ts tenha 'date' ou 'startDate'
 } from '../types';
 
-// Interface simples para os avisos (caso não tenha no types global)
+// Interface local para garantir tipagem correta do retorno do backend
 export interface Announcement {
     id: string;
     title: string;
     content: string;
     createdAt: string;
-    priority?: 'high' | 'normal';
+    category: string;
+    pinned: boolean;
+}
+
+// Interface de resposta paginada do backend
+interface PaginatedResponse<T> {
+    data: T[];
+    total: number;
+    page: number;
+    totalPages: number;
 }
 
 export const dashboardService = {
@@ -40,7 +49,7 @@ export const dashboardService = {
 
         } catch (error) {
             console.error("Erro ao carregar dados do admin", error);
-            // CORREÇÃO DO ERRO DA IMAGEM: Retornar objeto completo zerado
+            // CORREÇÃO DO ERRO DA IMAGEM: Retorna objeto completo com zeros
             return {
                 totalStudents: 0,
                 totalClasses: 0,
@@ -55,7 +64,6 @@ export const dashboardService = {
             const response = await api.get<TeacherDashboardStats>('/dashboard/teacher');
             return response.data;
         } catch (error) {
-            console.error("Erro dashboard teacher", error);
             return { totalClasses: 0, totalStudents: 0, assignmentsPending: 0, recentGrades: [], nextClass: null };
         }
     },
@@ -65,36 +73,56 @@ export const dashboardService = {
             const response = await api.get<StudentDashboardStats>('/dashboard/student');
             return response.data;
         } catch (error) {
-            console.error("Erro dashboard student", error);
             return { enrolledClasses: 0, averageGrade: 0, attendanceRate: 0, pendingAssignments: 0, upcomingExams: [], recentGrades: [] };
         }
     },
 
-    // NOVA FUNÇÃO: Buscar Avisos
+    // 2. Buscar Avisos (Adaptado para o retorno paginado do Backend)
     getRecentAnnouncements: async () => {
         try {
-            const response = await api.get<Announcement[]>('/announcements', {
-                params: { limit: 3, sort: 'createdAt:desc' }
+            // O backend espera 'limit' na query e retorna { data: [], total: ... }
+            const response = await api.get<PaginatedResponse<Announcement>>('/announcements', {
+                params: {
+                    limit: 3,
+                    // O backend ordena por pinned DESC, createdAt DESC por padrão
+                }
             });
-            return response.data;
+            // Retorna apenas o array de dados
+            return response.data.data || [];
         } catch (error) {
+            console.error("Erro ao buscar avisos", error);
             return [];
         }
     }
 };
 
 export const eventService = {
+    // 3. Buscar Eventos (Adaptado para os filtros do Backend)
     getUpcomingEvents: async () => {
         try {
-            const response = await api.get<Event[]>('/events', {
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+            const response = await api.get('/events', { // Removi <Event[]> pois o backend retorna paginação
                 params: {
-                    limit: 4, // Ajustado para preencher melhor o card
-                    sort: 'startDate:asc',
-                    startDate_gte: new Date().toISOString()
+                    limit: 4,
+                    // Backend espera 'dateFrom', não 'startDate_gte'
+                    dateFrom: today
                 }
             });
-            return response.data;
+
+            // O backend retorna { data: [], ... }
+            const eventsData = response.data.data || [];
+
+            // Mapeia para garantir que o front receba o formato esperado
+            return eventsData.map((evt: any) => ({
+                id: evt.id,
+                title: evt.title,
+                description: evt.description,
+                startDate: evt.date, // O backend retorna 'date', mapeamos para 'startDate' se seu type usar isso
+                type: evt.type
+            }));
         } catch (error) {
+            console.error("Erro ao buscar eventos", error);
             return [];
         }
     }
