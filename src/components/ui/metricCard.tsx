@@ -27,11 +27,8 @@ export function MetricCard({ title, value, subtitle, icon: Icon, colorTheme }: M
 
       <div className="flex items-center justify-between mb-4 relative z-10">
         <h4 className="text-lg font-bold text-slate-800">{title}</h4>
-        <div className={`p-2 rounded-lg ${theme.bg} ${theme.text}`}>
-          <Icon className="w-5 h-5" />
-        </div>
       </div>
-      
+
       <p className="text-3xl font-bold text-slate-800 relative z-10">
         {value}
       </p>

@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   BookOpen, Plus, Clock, Edit2, Trash2,
-  Search, Download, X, Loader2, AlertCircle
+  Search, Download, Loader2, AlertCircle
 } from 'lucide-react';
 import { subjectsService } from '../services/subjectsService';
 import { Subject } from '../types/index';
+// Import do componente de UI compartilhado
+import { MetricCard } from './ui/metricCard';
 
 export function SubjectsPage() {
   const currentYear = new Date().getFullYear().toString();
@@ -24,7 +26,7 @@ export function SubjectsPage() {
   // Formulário
   const [formData, setFormData] = useState({
     name: '',
-    code: '', // Mantido apenas para leitura na edição
+    code: '',
     credits: '',
     description: '',
     gradeYear: currentYear
@@ -38,7 +40,6 @@ export function SubjectsPage() {
       const data = await subjectsService.getSubjects({ limit: 100 });
       let filteredData = Array.isArray(data) ? data : [];
 
-      // Filtro Único: Busca por texto (Nome ou Código)
       if (searchTerm) {
         const lowerTerm = searchTerm.toLowerCase();
         filteredData = filteredData.filter(s =>
@@ -62,7 +63,7 @@ export function SubjectsPage() {
 
   useEffect(() => {
     loadSubjects();
-  }, [searchTerm]); // Recarrega apenas ao mudar a busca
+  }, [searchTerm]);
 
   // --- HANDLERS (CRUD) ---
 
@@ -99,7 +100,6 @@ export function SubjectsPage() {
     setIsSaving(true);
 
     try {
-      // Payload sem 'code' (gerado pelo backend)
       const payload: any = {
         name: formData.name,
         credits: Number(formData.credits),
@@ -125,7 +125,6 @@ export function SubjectsPage() {
     }
   };
 
-  // --- EXPORT ---
   const handleExportClick = () => {
     const header = ["Nome", "Código", "Créditos", "Ano", "Descrição"];
     let csvContent = header.join(",") + "\n";
@@ -144,23 +143,35 @@ export function SubjectsPage() {
     document.body.removeChild(link);
   };
 
-  // Estatísticas Simplificadas
+  // --- CONFIGURAÇÃO DOS CARDS (METRICS) ---
+  // Apenas "Total" e "Carga Horária", usando o MetricCard
   const stats = [
-    { label: 'Total', value: subjects.length.toString(), color: 'from-blue-500 to-cyan-400' },
-    { label: 'Carga Horária Total', value: subjects.reduce((acc, curr) => acc + curr.credits, 0).toString() + 'h', color: 'from-emerald-500 to-teal-400' },
+    {
+      title: 'Total',
+      value: subjects.length.toString(),
+      subtitle: 'Disciplinas Cadastradas',
+      icon: BookOpen,
+      colorTheme: 'blue' as const
+    },
+    {
+      title: 'Carga Horária Total',
+      value: subjects.reduce((acc, curr) => acc + curr.credits, 0).toString() + 'h',
+      subtitle: 'Soma de créditos da grade',
+      icon: Clock,
+      colorTheme: 'emerald' as const
+    }
   ];
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
 
-      {/* Header Simplificado */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Disciplinas</h1>
           <p className="text-slate-500 mt-1">Gestão do currículo e grade curricular</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Botão de Filtro REMOVIDO aqui */}
           <button
             onClick={handleAddNew}
             className="group flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2.5 rounded-xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all duration-300 transform hover:-translate-y-0.5 font-medium"
@@ -171,16 +182,17 @@ export function SubjectsPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      {/* Stats Cards (Usando MetricCard) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {stats.map((stat, index) => (
-          <div key={index} className="bg-white/70 backdrop-blur-xl rounded-2xl p-6 border border-white/50 shadow-xl shadow-indigo-100/10">
-            <p className="text-slate-500 text-sm font-medium mb-1">{stat.label}</p>
-            <div className="flex items-end justify-between">
-              <h3 className="text-2xl font-bold text-slate-800">{stat.value}</h3>
-              <div className={`w-2 h-2 rounded-full bg-gradient-to-br ${stat.color}`} />
-            </div>
-          </div>
+          <MetricCard
+            key={index}
+            title={stat.title}
+            value={stat.value}
+            subtitle={stat.subtitle}
+            icon={stat.icon}
+            colorTheme={stat.colorTheme}
+          />
         ))}
       </div>
 
@@ -315,7 +327,6 @@ export function SubjectsPage() {
             </div>
 
             <form onSubmit={handleSave} className="p-6 space-y-4">
-              {/* Código exibido apenas na edição (leitura) */}
               {editingId && (
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-center">
                   <span className="text-sm text-slate-500">Código da Disciplina:</span>

@@ -1,404 +1,390 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  CheckCircle, XCircle, Clock, Calendar as CalendarIcon, 
-  Loader2, Search, Edit2, Trash2, X, AlertCircle, Plus, Download, Filter 
+import { useState, useEffect } from 'react';
+import {
+  Calendar, CheckCircle2, XCircle, Clock, Save,
+  ArrowLeft, Users, BookOpen, Loader2, AlertCircle, GraduationCap, Plus, Edit2, Trash2, X
 } from 'lucide-react';
-import { attendanceService, Attendance, AttendanceStatus } from '../services/attendanceService';
+import { attendanceService, AttendanceStatus } from '../services/attendanceService';
 import { classesService } from '../services/classesService';
-import { format, parseISO } from 'date-fns';
+import { subjectsService } from '../services/subjectsService';
+import { studentsService } from '../services/studentsService';
+import { format } from 'date-fns';
 
-// Interface alinhada com o Backend (UUIDs)
-interface FormDataState {
-  studentId: string;    // Backend exige UUID
-  classId: string;      // Backend exige UUID
-  subjectId: string;    // Backend exige UUID
-  date: string;
+interface StudentRow {
+  id: string;
+  name: string;
   status: AttendanceStatus;
   notes: string;
 }
 
+interface ClassView {
+  id: string;
+  name: string;
+  studentsCount: number;
+  teacherName: string;
+  academicYear: string;
+}
+
 export function AttendancePage() {
-  // --- Estados ---
-  const [attendances, setAttendances] = useState<Attendance[]>([]);
-  const [classes, setClasses] = useState<any[]>([]);
-  
-  // Estados de Interface
+  const [view, setView] = useState<'classes' | 'sheet'>('classes');
+  const [selectedClass, setSelectedClass] = useState<ClassView | null>(null);
+
+  const [classes, setClasses] = useState<ClassView[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]);
+  const [students, setStudents] = useState<StudentRow[]>([]);
+
+  // Filtro de Turmas
+  const [classSearch, setClassSearch] = useState('');
+
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
 
-  // Filtros
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedClass, setSelectedClass] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-
-  // Form State
-  const [formData, setFormData] = useState<FormDataState>({
-    studentId: '',
-    classId: '',          
-    subjectId: '', 
-    date: format(new Date(), 'yyyy-MM-dd'),
-    status: 'present',
-    notes: ''
-  });
-
-  // --- Carregamento ---
   useEffect(() => {
-    loadClasses();
+    loadDashboardData();
   }, []);
 
-  useEffect(() => {
-    loadAttendances();
-  }, [selectedClass, selectedDate, statusFilter]);
-
-  const loadClasses = async () => {
+  const loadDashboardData = async () => {
     try {
-      const response = await classesService.getClasses(); 
-      // Assume que a resposta traz um array de objetos com { id, name }
-      setClasses(Array.isArray(response) ? response : (response as any).data || []);
-    } catch (error) {
-      console.error('Erro ao buscar turmas:', error);
-    }
-  };
+      setIsLoading(true);
+      const [classesData, subjectsData, allStudents] = await Promise.all([
+        classesService.getClasses({ limit: 100 }),
+        subjectsService.getSubjects({ limit: 100 }),
+        studentsService.getAll()
+      ]);
 
-  const loadAttendances = async () => {
-    setIsLoading(true);
-    try {
-      const params: any = {
-        classId: selectedClass || undefined, 
-        date: selectedDate || undefined,
-      };
-      
-      const data = await attendanceService.getAll(params);
-      let loadedData = Array.isArray(data) ? data : (data as any).data || [];
+      const adaptedClasses = (Array.isArray(classesData) ? classesData : []).map((c: any) => {
+        const count = Array.isArray(allStudents)
+          ? allStudents.filter(s => s.class && s.class.trim() === c.name.trim()).length
+          : 0;
 
-      if (statusFilter !== 'all') {
-        loadedData = loadedData.filter((a: any) => a.status === statusFilter);
+        return {
+          id: c.id,
+          name: c.name,
+          studentsCount: count,
+          teacherName: c.teacher?.name || 'Sem Professor',
+          academicYear: c.academic_year?.toString() || new Date().getFullYear().toString()
+        };
+      });
+
+      setClasses(adaptedClasses);
+      setSubjects(Array.isArray(subjectsData) ? subjectsData : []);
+
+      if (subjectsData.length > 0 && !selectedSubject) {
+        setSelectedSubject(subjectsData[0].id);
       }
 
-      setAttendances(loadedData);
     } catch (error) {
-      console.error('Erro ao buscar frequências:', error);
-      setAttendances([]);
+      console.error("Erro ao carregar dados iniciais", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const filteredAttendances = attendances.filter(item => 
-    (item.studentName?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-  );
-
-  // --- Helpers Visuais ---
-  const getStatusConfig = (status: string) => {
-    switch (status) {
-      case 'present': return { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', text: 'Presente' };
-      case 'absent': return { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', text: 'Faltou' };
-      case 'late': return { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', text: 'Atrasado' };
-      case 'excused': return { icon: CalendarIcon, color: 'text-blue-600', bg: 'bg-blue-100', text: 'Justificado' };
-      default: return { icon: CheckCircle, color: 'text-slate-600', bg: 'bg-slate-100', text: status };
-    }
-  };
-  
-  const getStatusText = (status: string) => getStatusConfig(status).text;
-
-  const handleExport = () => {
-    const header = ["Aluno", "Turma", "Data", "Status", "Observações"];
-    let csvContent = header.join(",") + "\n";
-    if (filteredAttendances.length > 0) {
-      const rows = filteredAttendances.map(a => [
-        `"${a.studentName}"`, `"${a.className || '-'}"`, 
-        format(parseISO(a.date), 'dd/MM/yyyy'), getStatusText(a.status), `"${a.notes || ''}"`
-      ]);
-      csvContent += rows.map(row => row.join(",")).join("\n");
-    }
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'frequencia.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleSelectClass = (cls: ClassView) => {
+    setSelectedClass(cls);
+    setView('sheet');
   };
 
-  // --- AÇÃO DE SALVAR ---
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    
+  useEffect(() => {
+    if (view === 'sheet' && selectedClass) {
+      loadSheetData();
+    }
+  }, [view, selectedClass, selectedDate, selectedSubject]);
+
+  const loadSheetData = async () => {
+    if (!selectedClass) return;
+    setIsLoading(true);
+
     try {
-      // 1. Validação Simples
-      if (!formData.classId) throw new Error("Selecione uma Turma.");
-      if (!formData.subjectId) throw new Error("O ID da Disciplina (UUID) é obrigatório.");
-      if (!formData.studentId) throw new Error("O ID do Aluno (UUID) é obrigatório.");
+      const enrolledStudents = await classesService.getEnrolledStudents(selectedClass.id);
 
-      // 2. Montagem do Payload (Exatamente como o backend pediu no erro)
-      const payload = {
-        classId: formData.classId, 
-        subjectId: formData.subjectId,
-        date: formData.date,
-        presences: [
-          {
-            studentId: formData.studentId, 
-            status: formData.status
-            // Nota: 'notes' removido daqui conforme o erro anterior do backend
+      let currentRows: StudentRow[] = enrolledStudents.map((s: any) => ({
+        id: s.id || s.studentId,
+        name: s.name || s.student?.name || 'Aluno Sem Nome',
+        status: 'present',
+        notes: ''
+      }));
+
+      if (selectedSubject) {
+        const history = await attendanceService.getAll({
+          classId: selectedClass.id,
+          subjectId: selectedSubject,
+          dateFrom: selectedDate,
+          limit: 100
+        });
+
+        currentRows = currentRows.map(student => {
+          const record = history.find((r: any) => {
+            const recordDate = typeof r.date === 'string' ? r.date.split('T')[0] : '';
+            return r.studentId === student.id && recordDate === selectedDate;
+          });
+
+          if (record) {
+            return {
+              ...student,
+              status: record.status,
+              notes: record.notes || ''
+            };
           }
-        ]
+          return student;
+        });
+      }
+      setStudents(currentRows);
+    } catch (error) {
+      console.error("Erro ao carregar pauta:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStatusChange = (studentId: string, newStatus: AttendanceStatus) => {
+    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, status: newStatus } : s));
+  };
+
+  const handleNoteChange = (studentId: string, note: string) => {
+    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, notes: note } : s));
+  };
+
+  const markAllPresent = () => {
+    setStudents(prev => prev.map(s => ({ ...s, status: 'present' })));
+  };
+
+  const handleSaveCall = async () => {
+    if (!selectedSubject) return alert("Selecione uma disciplina!");
+    if (!selectedClass) return;
+
+    setIsSaving(true);
+    try {
+      const payload = {
+        date: selectedDate,
+        classId: selectedClass.id,
+        subjectId: selectedSubject,
+        presences: students.map(s => ({
+          studentId: s.id,
+          status: s.status,
+          notes: s.notes || undefined
+        }))
       };
 
-      console.log("Enviando Payload:", payload);
-
-      if (editingId) {
-        // Update
-        const updatePayload = {
-            status: formData.status,
-            notes: formData.notes
-        };
-        await attendanceService.update(editingId.toString(), updatePayload);
-      } else {
-        // Create
-        await attendanceService.create(payload as any);
-      }
-      
-      setShowModal(false);
-      loadAttendances();
-      alert("Sucesso! Registro salvo.");
+      await attendanceService.create(payload);
+      await loadSheetData();
+      alert(`✅ Chamada salva com sucesso!`);
 
     } catch (error: any) {
-      console.error("Erro ao salvar:", error);
-      const msg = error.response?.data?.message;
-      if (Array.isArray(msg)) {
-         alert(`Erros:\n- ${msg.join('\n- ')}`);
-      } else {
-         alert(`Erro: ${msg || error.message}`);
-      }
+      console.error(error);
+      alert("Erro ao salvar: " + (error.response?.data?.message || error.message));
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleDelete = async (id: any) => {
-    if (!confirm("Excluir este registro?")) return;
-    try {
-      await attendanceService.delete(id);
-      setAttendances(prev => prev.filter(a => a.id !== id));
-    } catch (error: any) {
-      alert("Erro ao excluir. Verifique suas permissões.");
-    }
-  };
+  // Filtro de Turmas
+  const filteredClasses = classes.filter(c =>
+    c.name.toLowerCase().includes(classSearch.toLowerCase()) ||
+    c.teacherName.toLowerCase().includes(classSearch.toLowerCase())
+  );
 
-  const openModal = (attendance?: Attendance) => {
-    if (attendance) {
-      setEditingId(Number(attendance.id));
-      setFormData({
-        studentId: attendance.studentId || '', 
-        classId: attendance.classId, 
-        subjectId: '', 
-        date: attendance.date.split('T')[0],
-        status: attendance.status,
-        notes: attendance.notes || ''
-      });
-    } else {
-      setEditingId(null);
-      setFormData({
-        studentId: '',
-        classId: selectedClass || '', 
-        subjectId: '',
-        date: selectedDate || format(new Date(), 'yyyy-MM-dd'),
-        status: 'present',
-        notes: ''
-      });
-    }
-    setShowModal(true);
-  };
+  // --- VIEW: CLASSES (DASHBOARD) ---
+  if (view === 'classes') {
+    return (
+      <div className="animate-in fade-in duration-500 space-y-8">
 
-  const stats = {
-    total: filteredAttendances.length,
-    present: filteredAttendances.filter(a => a.status === 'present').length,
-    absent: filteredAttendances.filter(a => a.status === 'absent').length,
-    late: filteredAttendances.filter(a => a.status === 'late').length
-  };
-
-  return (
-    <div className="animate-in fade-in duration-500 pb-10 space-y-6">
-      
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Controle de Frequência</h1>
-          <p className="text-slate-500 mt-1">Gerencie presenças e faltas</p>
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Diário de Classe</h1>
+            <p className="text-slate-500 mt-1">Selecione uma turma para realizar a chamada</p>
+          </div>
+          {/* Botão Novo Registro removido daqui para focar na seleção de turma */}
         </div>
-        <button onClick={() => openModal()} className="group flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2.5 rounded-xl hover:shadow-lg font-medium">
-          <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" /> <span>Registrar</span>
-        </button>
-      </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total', value: stats.total, color: 'from-blue-500 to-cyan-400' },
-          { label: 'Presenças', value: stats.present, color: 'from-emerald-500 to-teal-400' },
-          { label: 'Faltas', value: stats.absent, color: 'from-red-500 to-pink-400' },
-          { label: 'Atrasos', value: stats.late, color: 'from-amber-500 to-yellow-400' }
-        ].map((stat, idx) => (
-          <div key={idx} className="bg-white/70 backdrop-blur-xl rounded-2xl p-5 border border-white/50 shadow-lg shadow-indigo-100/10">
-            <p className="text-slate-500 text-xs font-medium uppercase mb-1">{stat.label}</p>
-            <div className="flex items-end justify-between"><h3 className="text-2xl font-bold text-slate-800">{stat.value}</h3></div>
+        {/* Barra de Busca (Estilo Classes) */}
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
           </div>
-        ))}
-      </div>
+          <input
+            type="text"
+            className="w-full pl-10 pr-4 py-3 bg-white/50 backdrop-blur-sm border border-white/50 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+            placeholder="Buscar turmas por nome ou professor..."
+            value={classSearch}
+            onChange={(e) => setClassSearch(e.target.value)}
+          />
+        </div>
 
-      {/* Filtros */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl p-5 flex flex-col md:flex-row gap-4 items-end md:items-center">
-        <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div><label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Buscar Aluno</label><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Nome..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" /></div></div>
-          <div>
-              <label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Filtrar Turma</label>
-              <select className="w-full px-3 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}>
-                  <option value="">Todas</option>
-                  {classes.map((cls) => (
-                    // Mostra o NOME, mas o valor é o ID (que o backend precisa)
-                    <option key={cls.id} value={cls.id}>{cls.name}</option>
-                  ))}
-              </select>
+        {isLoading ? (
+          <div className="p-20 flex justify-center"><Loader2 className="w-10 h-10 animate-spin text-indigo-500" /></div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredClasses.map((cls) => (
+              <button
+                key={cls.id}
+                onClick={() => handleSelectClass(cls)}
+                className="group flex flex-col items-start bg-white/70 backdrop-blur-xl rounded-2xl p-6 border border-white/50 shadow-lg shadow-indigo-100/10 hover:shadow-xl hover:shadow-indigo-200/20 hover:-translate-y-1 transition-all duration-300 w-full text-left relative overflow-hidden"
+              >
+                <div className="flex w-full justify-between items-start mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-lg shadow-md">
+                    {cls.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="bg-indigo-50 text-indigo-700 text-xs font-bold px-2 py-1 rounded-lg border border-indigo-100">
+                    {cls.academicYear}
+                  </span>
+                </div>
+
+                <h3 className="text-xl font-bold text-slate-800 mb-1">{cls.name}</h3>
+                <p className="text-sm text-slate-500 mb-4">{cls.teacherName}</p>
+
+                <div className="flex items-center gap-2 text-slate-500 text-sm mt-auto">
+                  <Users className="w-4 h-4" />
+                  <span>{cls.studentsCount} Alunos</span>
+                </div>
+
+                {/* Barra de Progresso Animada */}
+                <div className="mt-4 w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500 w-0 group-hover:w-full transition-all duration-700 ease-out" />
+                </div>
+              </button>
+            ))}
+            {filteredClasses.length === 0 && (
+              <div className="col-span-3 text-center py-10 text-slate-500">Nenhuma turma encontrada.</div>
+            )}
           </div>
-          <div><label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Filtrar Data</label><input type="date" className="w-full px-3 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} /></div>
-          
-          <div>
-            <label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block">Status</label>
-            <div className="relative">
-              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-              <select className="w-full pl-9 pr-4 py-2 bg-white/50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                <option value="all">Todos</option>
-                <option value="present">Presentes</option>
-                <option value="absent">Faltas</option>
-                <option value="late">Atrasos</option>
-              </select>
+        )}
+      </div>
+    );
+  }
+
+  // --- VIEW: SHEET (CHAMADA) ---
+  return (
+    <div className="animate-in fade-in slide-in-from-right-8 duration-500 space-y-6 pb-24">
+      {/* Header Fixo */}
+      <div className="bg-white/80 backdrop-blur-xl border border-white/50 shadow-lg rounded-2xl p-6 sticky top-4 z-20">
+        <div className="flex flex-col md:flex-row justify-between gap-6">
+          <div className="flex items-start gap-4">
+            <button onClick={() => setView('classes')} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+              <ArrowLeft className="w-6 h-6 text-slate-600" />
+            </button>
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">{selectedClass?.name}</h2>
+              <div className="flex items-center gap-3 text-sm text-slate-500">
+                <span className="flex items-center gap-1"><Users className="w-4 h-4" /> {students.length} Alunos</span>
+                <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                <span className="flex items-center gap-1"><GraduationCap className="w-4 h-4" /> {selectedClass?.teacherName}</span>
+              </div>
             </div>
           </div>
 
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-slate-500 ml-1">Data da Aula</label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="date"
+                  className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-slate-500 ml-1">Disciplina</label>
+              <div className="relative">
+                <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <select
+                  className="pl-10 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 appearance-none cursor-pointer min-w-[200px]"
+                  value={selectedSubject}
+                  onChange={(e) => setSelectedSubject(e.target.value)}
+                >
+                  <option value="" disabled>Selecione...</option>
+                  {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="flex gap-2"><button onClick={handleExport} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 text-sm font-medium flex items-center gap-2"><Download className="w-4 h-4" /> Exportar</button></div>
       </div>
 
-      {/* Tabela */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl overflow-hidden flex flex-col">
+      {/* Lista de Presença */}
+      <div className="bg-white/70 backdrop-blur-xl border border-white/50 shadow-xl rounded-2xl overflow-hidden">
+        <div className="p-4 border-b border-slate-100/50 flex justify-between items-center bg-slate-50/50">
+          <h3 className="font-semibold text-slate-700 ml-2">Lista de Presença</h3>
+          <button onClick={markAllPresent} className="text-sm text-emerald-600 hover:text-emerald-700 font-medium px-3 py-1.5 hover:bg-emerald-50 rounded-lg transition-colors">
+            Marcar Todos Presentes
+          </button>
+        </div>
+
         {isLoading ? (
           <div className="p-20 flex justify-center"><Loader2 className="w-10 h-10 animate-spin text-indigo-500" /></div>
-        ) : filteredAttendances.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 flex flex-col items-center"><AlertCircle className="w-10 h-10 mb-2 opacity-50" /><p>Nenhum registro encontrado.</p></div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-slate-50/50 text-slate-500 text-xs uppercase font-semibold text-left">
-                <tr><th className="px-6 py-4">Aluno</th><th className="px-6 py-4">Data</th><th className="px-6 py-4">Status</th><th className="px-6 py-4">Observações</th><th className="px-6 py-4 text-right">Ações</th></tr>
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold text-left">
+                <tr>
+                  <th className="px-6 py-4 w-1/3">Aluno</th>
+                  <th className="px-6 py-4 text-center">Status</th>
+                  <th className="px-6 py-4 w-1/3">Observação</th>
+                </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100/50">
-                {filteredAttendances.map((item) => {
-                  const statusConfig = getStatusConfig(item.status);
-                  return (
-                    <tr key={item.id} className="hover:bg-indigo-50/30 transition-colors group">
-                      <td className="px-6 py-4"><span className="font-semibold text-slate-800">{item.studentName || item.studentId}</span><br/><span className="text-xs text-slate-500">{item.className}</span></td>
-                      <td className="px-6 py-4 text-slate-600 text-sm">{format(parseISO(item.date), 'dd/MM/yyyy')}</td>
-                      <td className="px-6 py-4"><div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusConfig.bg} ${statusConfig.color}`}>{statusConfig.text}</div></td>
-                      <td className="px-6 py-4 text-slate-500 text-sm truncate max-w-[200px]">{item.notes || '-'}</td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openModal(item)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-lg"><Edit2 className="w-4 h-4" /></button>
-                          <button onClick={() => handleDelete(item.id)} className="p-2 text-slate-400 hover:text-red-600 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+              <tbody className="divide-y divide-slate-100">
+                {students.map((student) => (
+                  <tr key={student.id} className="hover:bg-white transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border ${student.status === 'absent' ? 'bg-red-100 text-red-600 border-red-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                          {student.name.charAt(0)}
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                        <span className={`font-medium ${student.status === 'absent' ? 'text-red-600' : 'text-slate-700'}`}>{student.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex gap-2 justify-center">
+                        {[
+                          { val: 'present', icon: CheckCircle2, label: 'P', color: 'text-emerald-600', bg: 'bg-emerald-100', border: 'border-emerald-200' },
+                          { val: 'absent', icon: XCircle, label: 'F', color: 'text-red-600', bg: 'bg-red-100', border: 'border-red-200' },
+                          { val: 'late', icon: Clock, label: 'A', color: 'text-amber-600', bg: 'bg-amber-100', border: 'border-amber-200' },
+                        ].map((opt) => (
+                          <button
+                            key={opt.val}
+                            onClick={() => handleStatusChange(student.id, opt.val as AttendanceStatus)}
+                            className={`flex items-center justify-center w-10 h-10 rounded-xl border-2 transition-all duration-200 ${student.status === opt.val ? `${opt.bg} ${opt.color} ${opt.border} scale-110 shadow-sm` : 'bg-white border-slate-100 text-slate-300 hover:border-slate-200 opacity-60 hover:opacity-100'}`}
+                            title={opt.label}
+                          >
+                            <opt.icon className="w-5 h-5" />
+                          </button>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <input
+                        type="text"
+                        placeholder="Adicionar nota..."
+                        className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-indigo-500 outline-none text-sm py-1 text-slate-600 placeholder-slate-300 transition-all"
+                        value={student.notes}
+                        onChange={(e) => handleNoteChange(student.id, e.target.value)}
+                      />
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in-95">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-800">{editingId ? 'Editar' : 'Registrar'} Frequência</h2>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100"><X className="w-5 h-5" /></button>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="space-y-4">
-              
-              {/* Turma e Matéria */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Turma *</label>
-                    <select 
-                      required 
-                      className="w-full border border-slate-200 p-2.5 rounded-xl text-sm bg-white" 
-                      value={formData.classId} 
-                      onChange={e => setFormData({ ...formData, classId: e.target.value })}
-                      disabled={!!editingId} 
-                    >
-                    <option value="">Selecione a Turma...</option>
-                    {/* AQUI ESTÁ A MUDANÇA: Exibe o nome (cls.name), mas usa o ID no value */}
-                    {classes.map((cls) => (
-                        <option key={cls.id} value={cls.id}>
-                            {cls.name}
-                        </option>
-                    ))}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">ID da Disciplina (UUID) *</label>
-                    <input 
-                      required 
-                      placeholder="Cole o UUID da disciplina"
-                      className="w-full border border-slate-200 p-2.5 rounded-xl text-sm outline-none font-mono" 
-                      value={formData.subjectId} 
-                      onChange={e => setFormData({ ...formData, subjectId: e.target.value })}
-                      disabled={!!editingId} 
-                    />
-                </div>
-              </div>
-
-              {/* Aluno - UUID */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">ID do Aluno (UUID) *</label>
-                <input 
-                  required 
-                  placeholder="Cole o UUID do aluno"
-                  className="w-full border border-slate-200 p-2.5 rounded-xl text-sm outline-none font-mono text-slate-600" 
-                  value={formData.studentId} 
-                  onChange={e => setFormData({ ...formData, studentId: e.target.value })} 
-                  disabled={!!editingId} 
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Data</label><input type="date" required className="w-full border border-slate-200 p-2.5 rounded-xl text-sm" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                  <select className="w-full border border-slate-200 p-2.5 rounded-xl text-sm bg-white" value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value as AttendanceStatus })}>
-                    <option value="present">Presente</option><option value="absent">Faltou</option><option value="late">Atrasado</option><option value="excused">Justificado</option>
-                  </select>
-                </div>
-              </div>
-
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Observações</label><textarea className="w-full border border-slate-200 p-2.5 rounded-xl text-sm resize-none h-24" value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} /></div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-2">
-                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 text-sm font-medium">Cancelar</button>
-                <button type="submit" disabled={isSaving} className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 flex items-center gap-2 text-sm font-medium shadow-lg shadow-indigo-500/20 disabled:opacity-70">
-                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />} {isSaving ? 'Salvando...' : 'Salvar'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <div className="fixed bottom-6 right-6 z-30">
+        <button
+          onClick={handleSaveCall}
+          disabled={isSaving || isLoading || !selectedSubject}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl shadow-xl shadow-indigo-500/30 flex items-center gap-3 font-bold text-lg transition-all hover:scale-105 active:scale-95 disabled:opacity-70 disabled:scale-100 disabled:cursor-not-allowed"
+        >
+          {isSaving ? <Loader2 className="w-6 h-6 animate-spin" /> : <Save className="w-6 h-6" />}
+          {isSaving ? 'Salvando...' : 'Salvar Chamada'}
+        </button>
+      </div>
     </div>
   );
 }
