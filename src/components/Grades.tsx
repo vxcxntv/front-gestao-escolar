@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Plus, Download, ChevronDown, ChevronRight, FileSpreadsheet, Loader2, AlertCircle } from 'lucide-react';
 import { studentsService } from '../services/studentsService';
 import { gradesService } from '../services/gradesService';
@@ -6,115 +6,119 @@ import { subjectsService } from '../services/subjectsService';
 import { classesService } from '../services/classesService';
 import { User } from '../types';
 
-interface Subject {
-  id: string;
-  name: string;
-}
-
+interface Subject { id: string; name: string; }
 interface GradeView {
   id: string; 
-  studentName: string;
-  enrollment: string;
-  class: string;
-  subject: string;
-  grade1: number;
-  grade2: number;
-  grade3: number;
-  grade4: number;
-  average: number;
+  studentName: string; enrollment: string; class: string; subject: string;
+  grade1: number; grade2: number; grade3: number; grade4: number; average: number;
 }
 
 export function Grades() {
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Listas vindas da API
-  const [subjectsList, setSubjectsList] = useState<Subject[]>([]);
-  const [studentsList, setStudentsList] = useState<User[]>([]);
+  // --- DADOS DA API ---
+  const [allSubjects, setAllSubjects] = useState<Subject[]>([]);
   const [classesList, setClassesList] = useState<any[]>([]); 
+  const [allStudents, setAllStudents] = useState<User[]>([]);
 
-  // Estados de Controle da Tabela
-  const [filterSubjectId, setFilterSubjectId] = useState(''); 
+  // --- FILTROS DA TELA ---
+  const [filterClassId, setFilterClassId] = useState(''); 
+  const [filterSubjectId, setFilterSubjectId] = useState('');
+  
+  // Controle de Interface (Accordions)
   const [expandedClasses, setExpandedClasses] = useState<string[]>([]);
+
+  // Dados Processados
   const [gradesData, setGradesData] = useState<GradeView[]>([]);
   
   // Loadings
-  const [isLoadingSubjects, setIsLoadingSubjects] = useState(true);
+  const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [isLoadingGrades, setIsLoadingGrades] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorType, setErrorType] = useState<'none' | 'auth' | 'connection'>('none');
 
-  // --- NOVOS ESTADOS PARA O MODAL ---
-  const [modalClassId, setModalClassId] = useState(''); // Estado para a turma selecionada no modal
-
+  // --- MODAL ---
+  const [modalClassId, setModalClassId] = useState('');
   const [formData, setFormData] = useState({
-    studentId: '',
-    subjectId: '',
-    value: '',
-    description: '1º Bimestre'
+    studentId: '', subjectId: '', value: '', description: '1º Bimestre'
   });
 
-  // 1. Efeito Inicial
+  // 1. CARREGAMENTO INICIAL
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        setIsLoadingSubjects(true);
-        const [subsData, classesData] = await Promise.all([
+        setIsLoadingInitial(true);
+        const [subsData, classesData, studentsData] = await Promise.all([
             subjectsService.getSubjects({ limit: 100 }),
-            classesService.getClasses({ limit: 100 })
+            classesService.getClasses({ limit: 100 }),
+            studentsService.getAll()
         ]);
-        
-        setSubjectsList(subsData || []);
+        setAllSubjects(subsData || []);
         setClassesList(classesData || []);
-
-        if (subsData && subsData.length > 0) {
-          // Define filtros da tabela
-          setFilterSubjectId(subsData[0].id);
-          
-          // Define valor inicial do formulário do modal
-          setFormData(prev => ({ ...prev, subjectId: subsData[0].id }));
-        }
+        setAllStudents(studentsData || []);
       } catch (err) {
-        console.error("Erro ao carregar dados iniciais", err);
+        console.error("Erro inicial", err);
         setErrorType('connection');
       } finally {
-        setIsLoadingSubjects(false);
+        setIsLoadingInitial(false);
       }
     };
-
     loadInitialData();
   }, []);
 
-  // 2. Busca notas
+  // 2. FILTRO DE MATÉRIAS (Depende da Turma selecionada)
+  const availableSubjectsFilter = useMemo(() => {
+    if (!filterClassId) return [];
+    const selectedClass = classesList.find(c => c.id === filterClassId);
+    return selectedClass?.subjects || [];
+  }, [filterClassId, classesList]);
+
+  // Limpa a matéria e fecha accordion se mudar a turma
+  useEffect(() => {
+    setFilterSubjectId(''); 
+    setGradesData([]); 
+    setExpandedClasses([]); 
+  }, [filterClassId]);
+
+  // 3. BUSCA NOTAS
   const fetchGrades = async () => {
-    if (!filterSubjectId) return; 
+    if (!filterClassId || !filterSubjectId) return;
 
     try {
       setIsLoadingGrades(true);
       setErrorType('none');
 
-      const students = await studentsService.getAll();
-      setStudentsList(students);
+      // Atualiza alunos
+      const students = await studentsService.getAll(); 
+      setAllStudents(students);
 
-      const currentSubjectName = subjectsList.find(s => s.id === filterSubjectId)?.name || 'Disciplina';
+      const currentClassObj = classesList.find(c => c.id === filterClassId);
+      const currentSubjectObj = allSubjects.find(s => s.id === filterSubjectId);
 
-      const processedGrades: GradeView[] = students.map((student: any) => {
+      if (!currentClassObj) return;
+
+      // Expandir o accordion da turma selecionada automaticamente
+      setExpandedClasses([currentClassObj.name]);
+
+      // --- FILTRO RIGOROSO ---
+      const classStudents = students.filter((student: any) => 
+        student.class && student.class === currentClassObj.name
+      );
+
+      const processedGrades: GradeView[] = classStudents.map((student: any) => {
         const notes = student.grades || [];
-        
         const findGrade = (term: string) => {
           const note = notes.find((n: any) => 
-            n.description && 
-            n.description.toLowerCase().includes(term.toLowerCase()) &&
+            n.description && n.description.toLowerCase().includes(term.toLowerCase()) &&
             n.subjectId === filterSubjectId 
           );
           return note ? parseFloat(note.value) : 0;
         };
-
         const g1 = findGrade('1º');
         const g2 = findGrade('2º');
         const g3 = findGrade('3º');
         const g4 = findGrade('4º');
-        
         const validGrades = [g1, g2, g3, g4].filter(g => g > 0);
         const sum = validGrades.reduce((a, b) => a + b, 0);
         const avg = validGrades.length > 0 ? sum / validGrades.length : 0;
@@ -123,25 +127,16 @@ export function Grades() {
           id: student.id,
           studentName: student.name,
           enrollment: student.enrollment || 'N/A',
-          class: student.class || 'Sem Turma',
-          subject: currentSubjectName,
-          grade1: g1,
-          grade2: g2,
-          grade3: g3,
-          grade4: g4,
-          average: avg
+          class: currentClassObj.name,
+          subject: currentSubjectObj?.name || 'Disciplina',
+          grade1: g1, grade2: g2, grade3: g3, grade4: g4, average: avg
         };
       });
 
       setGradesData(processedGrades);
-
     } catch (err: any) {
       console.error("Erro API Grades:", err);
-      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-        setErrorType('auth');
-      } else {
-        setErrorType('connection');
-      }
+      setErrorType('connection');
     } finally {
       setIsLoadingGrades(false);
     }
@@ -149,14 +144,13 @@ export function Grades() {
 
   useEffect(() => {
     fetchGrades();
-  }, [filterSubjectId]);
+  }, [filterClassId, filterSubjectId]);
 
-  // Filtros de busca
+  // Filtros de Texto
   const filteredGrades = gradesData.filter(grade => {
     const term = searchTerm.toLowerCase();
     return grade.studentName.toLowerCase().includes(term) || 
-           grade.enrollment.includes(term) ||
-           grade.class.toLowerCase().includes(term);
+           grade.enrollment.includes(term);
   });
 
   const gradesByClass = filteredGrades.reduce((acc, grade) => {
@@ -165,11 +159,7 @@ export function Grades() {
     return acc;
   }, {} as Record<string, GradeView[]>);
 
-  const visibleClasses = Object.entries(gradesByClass).filter(([className]) => {
-    const classObj = classesList.find(c => c.name === className);
-    if (!classObj || !classObj.subjects) return true;
-    return classObj.subjects.some((s: any) => s.id === filterSubjectId);
-  });
+  const visibleClasses = Object.entries(gradesByClass);
 
   const toggleClass = (className: string) => {
     setExpandedClasses(prev =>
@@ -177,23 +167,25 @@ export function Grades() {
     );
   };
 
+  // --- MODAL HANDLERS ---
+  const handleModalOpen = () => {
+    setModalClassId('');
+    setFormData({ studentId: '', subjectId: '', value: '', description: '1º Bimestre' });
+    setShowModal(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.studentId || !formData.subjectId || !formData.value) {
-      alert("Preencha todos os campos.");
-      return;
+      alert("Preencha todos os campos."); return;
     }
     setIsSaving(true);
     try {
       await gradesService.create({
-        studentId: formData.studentId,
-        subjectId: formData.subjectId,
-        value: parseFloat(formData.value),
-        description: formData.description
+        studentId: formData.studentId, subjectId: formData.subjectId,
+        value: parseFloat(formData.value), description: formData.description
       });
       setShowModal(false);
-      setFormData(prev => ({ ...prev, value: '' })); 
-      setModalClassId(''); // Reseta a turma do modal
       alert("Nota lançada com sucesso!");
       fetchGrades(); 
     } catch (err) {
@@ -204,10 +196,10 @@ export function Grades() {
     }
   };
 
-  const getGradeColor = (average: number) => {
-    if (average >= 9) return 'text-emerald-700 bg-emerald-100 border-emerald-200';
-    if (average >= 7) return 'text-indigo-700 bg-indigo-100 border-indigo-200';
-    if (average >= 5) return 'text-amber-700 bg-amber-100 border-amber-200';
+  const getGradeColor = (avg: number) => {
+    if (avg >= 9) return 'text-emerald-700 bg-emerald-100 border-emerald-200';
+    if (avg >= 7) return 'text-indigo-700 bg-indigo-100 border-indigo-200';
+    if (avg >= 5) return 'text-amber-700 bg-amber-100 border-amber-200';
     return 'text-rose-700 bg-rose-100 border-rose-200';
   };
 
@@ -216,121 +208,115 @@ export function Grades() {
     return classGrades.length > 0 ? (sum / classGrades.length).toFixed(2) : '0.00';
   };
 
-  // --- LÓGICA DE FILTRO DO MODAL ---
-  
-  // 1. Filtra Turmas disponíveis para a disciplina selecionada no modal
-  const modalAvailableClasses = classesList.filter(cls => {
-    if (!formData.subjectId) return false;
-    // Se a turma não tiver subjects, não mostra (ou mostra tudo, depende da regra)
-    if (!cls.subjects) return false; 
-    return cls.subjects.some((s: any) => s.id === formData.subjectId);
-  });
-
-  // 2. Filtra Alunos da turma selecionada no modal
-  const modalAvailableStudents = studentsList.filter(student => {
-    if (!modalClassId) return false;
-    // Encontra o nome da turma baseado no ID selecionado
-    const selectedClassObj = classesList.find(c => c.id === modalClassId);
-    // Compara o nome da turma do aluno com o nome da turma selecionada
-    return selectedClassObj && student.class === selectedClassObj.name;
-  });
-
-  const handleModalOpen = () => {
-    setModalClassId(''); // Reseta turma
-    setFormData(prev => ({ ...prev, studentId: '', value: '' })); // Reseta aluno e valor
-    setShowModal(true);
-  };
-
   return (
     <div className="animate-in fade-in duration-500 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Notas e Avaliações</h1>
-          <p className="text-slate-500 mt-1">Gerencie notas por disciplina e turma</p>
+          <p className="text-slate-500 mt-1">Selecione uma turma e disciplina para visualizar</p>
         </div>
         <div className="flex gap-3">
-          <button className="flex items-center gap-2 bg-white/50 backdrop-blur-md text-slate-600 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-white hover:border-indigo-200 hover:text-indigo-600 transition-all shadow-sm">
+          <button className="flex items-center gap-2 bg-white/50 backdrop-blur-md text-slate-600 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-white transition-all shadow-sm">
             <Download className="w-5 h-5" />
             <span className="hidden sm:inline font-medium">Exportar</span>
           </button>
-          <button
-            onClick={handleModalOpen}
-            disabled={isLoadingSubjects}
-            className="group flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2.5 rounded-xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+          <button onClick={handleModalOpen} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">
+            <Plus className="w-5 h-5" />
             <span className="hidden sm:inline font-medium">Lançar Notas</span>
-            <span className="sm:hidden">Lançar</span>
           </button>
         </div>
       </div>
 
-      {/* ... Alertas e Filtros da Tabela (Código igual ao anterior) ... */}
-      {/* Alertas */}
-      {errorType !== 'none' && (
-        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800 flex items-center gap-2">
-          <AlertCircle className="w-5 h-5" />
-          <p>{errorType === 'auth' ? 'Sessão expirada.' : 'Erro de conexão com o servidor.'}</p>
-        </div>
-      )}
-
-      {/* Filtros da Tabela */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl shadow-indigo-100/10 p-6">
+      {/* --- BARRA DE FILTROS REORGANIZADA --- */}
+      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl shadow-indigo-100/10 p-6 space-y-4">
+        
+        {/* Linha 1: Turma e Disciplina (Mesmo Tamanho) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="relative">
+            {/* Filtro Turma */}
+            <div>
+              <select 
+                className="w-full px-4 py-2.5 bg-white/50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer text-slate-700"
+                value={filterClassId}
+                onChange={(e) => setFilterClassId(e.target.value)}
+                disabled={isLoadingInitial}
+              >
+                <option value="">Selecione a Turma</option>
+                {classesList.map(cls => (
+                  <option key={cls.id} value={cls.id}>{cls.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filtro Matéria */}
+            <div>
+              <select 
+                className="w-full px-4 py-2.5 bg-white/50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer disabled:bg-slate-100/50 disabled:text-slate-400 text-slate-700"
+                value={filterSubjectId}
+                onChange={(e) => setFilterSubjectId(e.target.value)}
+                disabled={!filterClassId} 
+              >
+                <option value="">
+                  {!filterClassId ? 'Aguardando Turma...' : 'Selecione a Disciplina'}
+                </option>
+                {availableSubjectsFilter.map((sub: any) => (
+                  <option key={sub.id} value={sub.id}>{sub.name}</option>
+                ))}
+              </select>
+            </div>
+        </div>
+
+        {/* Linha 2: Busca por Nome (Largura Total) */}
+        <div className="relative w-full">
             <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="Buscar por nome, matrícula ou turma..."
+              placeholder="Buscar aluno por nome..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-11 pr-4 py-2.5 bg-white/50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+              disabled={!filterClassId || !filterSubjectId}
+              className="w-full pl-11 pr-4 py-2.5 bg-white/50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all disabled:opacity-60"
             />
-          </div>
-          <div>
-            <select 
-              className="w-full px-4 py-2.5 bg-white/50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-slate-600 cursor-pointer"
-              value={filterSubjectId}
-              onChange={(e) => setFilterSubjectId(e.target.value)}
-              disabled={isLoadingSubjects}
-            >
-              {isLoadingSubjects ? (
-                <option>Carregando disciplinas...</option>
-              ) : (
-                subjectsList.map(sub => (
-                  <option key={sub.id} value={sub.id}>{sub.name}</option>
-                ))
-              )}
-            </select>
-          </div>
         </div>
+
       </div>
 
-      {/* Tabela de Notas */}
-      {(isLoadingSubjects || isLoadingGrades) ? (
+      {/* --- ÁREA DE CONTEÚDO (Visual de Accordions) --- */}
+      {errorType !== 'none' && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800 flex items-center gap-2">
+          <AlertCircle className="w-5 h-5" />
+          <p>Erro de conexão.</p>
+        </div>
+      )}
+
+      {(isLoadingInitial || isLoadingGrades) ? (
         <div className="p-20 flex justify-center items-center flex-col gap-3">
           <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
-          <span className="text-slate-500 font-medium">
-            {isLoadingSubjects ? 'Carregando disciplinas...' : 'Carregando boletins...'}
-          </span>
+          <span className="text-slate-500 font-medium">Carregando dados...</span>
         </div>
       ) : (
         <div className="space-y-4">
-          {visibleClasses.length === 0 ? (
+          
+          {(!filterClassId || !filterSubjectId) && (
+            <div className="text-center p-10 text-slate-400 bg-white/50 rounded-2xl border border-white/60 border-dashed">
+               <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 opacity-20" />
+               <p>Selecione uma <strong>Turma</strong> e uma <strong>Disciplina</strong> acima para ver as notas.</p>
+            </div>
+          )}
+
+          {filterClassId && filterSubjectId && visibleClasses.length === 0 && (
              <div className="text-center p-10 text-slate-500">
-               {subjectsList.length === 0 
-                 ? "Nenhuma disciplina cadastrada no sistema." 
-                 : "Nenhuma turma possui esta disciplina vinculada ou não há alunos com notas."}
+                Nenhum aluno encontrado nesta turma.
              </div>
-          ) : (
-             visibleClasses.map(([className, classGrades]) => {
+          )}
+
+          {visibleClasses.map(([className, classGrades]) => {
               const isExpanded = expandedClasses.includes(className);
               const classAverage = getClassAverage(classGrades);
 
               return (
                 <div key={className} className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-lg shadow-indigo-100/10 overflow-hidden transition-all duration-300 hover:shadow-xl">
-                  {/* Cabeçalho Accordion */}
+                  {/* Cabeçalho do Cartão */}
                   <button
                     onClick={() => toggleClass(className)}
                     className={`w-full px-6 py-5 flex items-center justify-between transition-colors ${isExpanded ? 'bg-indigo-50/50' : 'hover:bg-white/50'}`}
@@ -396,135 +382,129 @@ export function Grades() {
                   )}
                 </div>
               );
-            })
-          )}
+          })}
         </div>
       )}
 
-      {/* Modal de Lançamento */}
+      {/* --- MODAL --- */}
       {showModal && (
+        <ModalLancamento 
+           onClose={() => setShowModal(false)} 
+           classesList={classesList}
+           allStudents={allStudents}
+           onSubmit={handleSubmit}
+           formData={formData}
+           setFormData={setFormData}
+           isSaving={isSaving}
+           modalClassId={modalClassId}
+           setModalClassId={setModalClassId}
+        />
+      )}
+    </div>
+  );
+}
+
+// Subcomponente do Modal
+function ModalLancamento({ onClose, classesList, allStudents, onSubmit, formData, setFormData, isSaving, modalClassId, setModalClassId }: any) {
+    const modalAvailableSubjects = useMemo(() => {
+        if (!modalClassId) return [];
+        const selectedClass = classesList.find((c: any) => c.id === modalClassId);
+        return selectedClass?.subjects || [];
+    }, [modalClassId, classesList]);
+
+    const modalAvailableStudents = useMemo(() => {
+        if (!modalClassId) return [];
+        const selectedClass = classesList.find((c: any) => c.id === modalClassId);
+        if (!selectedClass) return [];
+        return allStudents.filter((s: User) => s.class === selectedClass.name);
+    }, [modalClassId, allStudents, classesList]);
+
+    return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowModal(false)} />
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-0 overflow-hidden animate-in zoom-in-95">
             <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4 flex justify-between items-center">
               <h2 className="text-white font-bold text-lg flex items-center gap-2">
                 <FileSpreadsheet className="w-5 h-5 text-indigo-200" /> Lançar Nota
               </h2>
-              <button onClick={() => setShowModal(false)} className="text-white/70 hover:text-white text-2xl">&times;</button>
+              <button onClick={onClose} className="text-white/70 hover:text-white text-2xl">&times;</button>
             </div>
+            
+            <form onSubmit={onSubmit} className="p-6 space-y-4">
+               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Turma</label>
+                <select 
+                  required
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  value={modalClassId}
+                  onChange={(e) => {
+                    setModalClassId(e.target.value);
+                    setFormData({ ...formData, subjectId: '', studentId: '' });
+                  }}
+                >
+                  <option value="">Selecione a turma...</option>
+                  {classesList.map((cls:any) => (
+                    <option key={cls.id} value={cls.id}>{cls.name}</option>
+                  ))}
+                </select>
+              </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              
-              {/* 1. Selecionar Disciplina */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Disciplina</label>
                 <select 
                   required
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none disabled:bg-slate-100"
                   value={formData.subjectId}
-                  onChange={(e) => {
-                    setFormData({ ...formData, subjectId: e.target.value, studentId: '' });
-                    setModalClassId(''); // Reseta turma ao mudar disciplina
-                  }}
-                  disabled={isLoadingSubjects}
+                  onChange={(e) => setFormData({ ...formData, subjectId: e.target.value })}
+                  disabled={!modalClassId}
                 >
-                  <option value="">Selecione a disciplina...</option>
-                  {subjectsList.map(s => (
+                  <option value="">{!modalClassId ? "Escolha a turma primeiro" : "Selecione a disciplina..."}</option>
+                  {modalAvailableSubjects.map((s:any) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
               </div>
 
-              {/* 2. Selecionar Turma (NOVO CAMPO) */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Turma</label>
-                <select 
-                  required
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none disabled:bg-slate-100 disabled:text-slate-400"
-                  value={modalClassId}
-                  onChange={(e) => {
-                    setModalClassId(e.target.value);
-                    setFormData({ ...formData, studentId: '' }); // Reseta aluno ao mudar turma
-                  }}
-                  disabled={!formData.subjectId}
-                >
-                  <option value="">
-                    {formData.subjectId ? "Selecione a turma..." : "Escolha a disciplina primeiro"}
-                  </option>
-                  {modalAvailableClasses.map(cls => (
-                    <option key={cls.id} value={cls.id}>{cls.name}</option>
-                  ))}
-                </select>
-                {formData.subjectId && modalAvailableClasses.length === 0 && (
-                  <p className="text-xs text-amber-600 mt-1">Nenhuma turma possui esta disciplina.</p>
-                )}
-              </div>
-
-              {/* 3. Selecionar Aluno (Filtrado) */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Aluno</label>
                 <select 
                   required
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none disabled:bg-slate-100"
                   value={formData.studentId}
                   onChange={(e) => setFormData({...formData, studentId: e.target.value})}
                   disabled={!modalClassId}
                 >
-                  <option value="">
-                    {modalClassId ? "Selecione o aluno..." : "Escolha a turma primeiro"}
-                  </option>
-                  {modalAvailableStudents.map(s => (
+                  <option value="">{!modalClassId ? "Escolha a turma primeiro" : "Selecione o aluno..."}</option>
+                  {modalAvailableStudents.map((s: User) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
-                {modalClassId && modalAvailableStudents.length === 0 && (
-                  <p className="text-xs text-amber-600 mt-1">Nenhum aluno matriculado nesta turma.</p>
-                )}
               </div>
 
-              {/* Select Bimestre */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Bimestre</label>
-                <select 
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                  value={formData.description}
-                  onChange={(e) => setFormData({...formData, description: e.target.value})}
-                >
-                  <option value="1º Bimestre">1º Bimestre</option>
-                  <option value="2º Bimestre">2º Bimestre</option>
-                  <option value="3º Bimestre">3º Bimestre</option>
-                  <option value="4º Bimestre">4º Bimestre</option>
-                </select>
-              </div>
-
-              {/* Input Valor */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Valor da Nota (0-10)</label>
-                <input 
-                  type="number" 
-                  step="0.1" 
-                  max="10" 
-                  min="0"
-                  required
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                  value={formData.value}
-                  onChange={(e) => setFormData({...formData, value: e.target.value})}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Bimestre</label>
+                    <select className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})}>
+                        <option>1º Bimestre</option>
+                        <option>2º Bimestre</option>
+                        <option>3º Bimestre</option>
+                        <option>4º Bimestre</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nota</label>
+                    <input type="number" step="0.1" max="10" min="0" required className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none" value={formData.value} onChange={(e) => setFormData({...formData, value: e.target.value})} />
+                  </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2 text-slate-600 hover:bg-slate-50 rounded-xl font-medium border border-slate-200">
-                  Cancelar
-                </button>
+                <button type="button" onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-50 rounded-xl font-medium border border-slate-200">Cancelar</button>
                 <button type="submit" disabled={isSaving} className="px-5 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium shadow-md flex items-center gap-2">
-                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Salvar
+                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
                 </button>
               </div>
             </form>
           </div>
         </div>
-      )}
-    </div>
-  );
+    )
 }
