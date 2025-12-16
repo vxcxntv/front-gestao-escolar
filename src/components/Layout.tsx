@@ -26,7 +26,7 @@ export function Layout({ children }: LayoutProps) { // Receber children como pro
     { path: '/events', label: 'Eventos', icon: Calendar },
     { path: '/announcements', label: 'Avisos', icon: Megaphone },
     { path: '/reports', label: 'Relatórios', icon: BarChart3 },
-    { path: '/settings', label: 'Configurações', icon: Settings },
+    //{ path: '/settings', label: 'Configurações', icon: Settings }, //removido para alterações futuras
   ];
 
   return (

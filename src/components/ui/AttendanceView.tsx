@@ -1,44 +1,90 @@
-import { Calendar, UserCheck, AlertTriangle, Clock } from 'lucide-react';
-import { MetricCard } from './metricCard';
+import { Calendar, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
 import { AttendanceReport } from '../../services/reportsService';
+// Certifique-se de que o caminho do import está correto conforme seu projeto
+import { MetricCard } from './metricCard';
 
-export function AttendanceView({ data }: { data: AttendanceReport }) {
+interface Props {
+  data: AttendanceReport;
+}
+
+export function AttendanceView({ data }: Props) {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <MetricCard title="Frequência Global" value={`${data.summary.attendanceRate}%`} subtitle="Presença média" icon={Calendar} colorTheme="blue" />
-        <MetricCard title="Aulas Dadas" value={data.summary.totalClasses} subtitle="No período" icon={Clock} colorTheme="amber" />
-        <MetricCard title="Presença Média" value={data.summary.presentAvg} subtitle="Alunos por aula" icon={UserCheck} colorTheme="emerald" />
-        <MetricCard title="Faltas Média" value={data.summary.absentAvg} subtitle="Alunos por aula" icon={AlertTriangle} colorTheme="red" />
+
+      {/* GRID 2x2 (md:grid-cols-2) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <MetricCard
+          title="Frequência Global"
+          value={`${data.summary.attendanceRate}%`}
+          subtitle="Média geral da turma"
+          icon={Calendar}
+          colorTheme="blue"
+        />
+        <MetricCard
+          title="Aulas Dadas"
+          value={data.summary.totalClasses.toString()}
+          subtitle="Total de registros"
+          icon={Clock}
+          colorTheme="amber"
+        />
+        <MetricCard
+          title="Presença Média"
+          value={data.summary.presentAvg.toString()}
+          subtitle="Alunos presentes por aula"
+          icon={CheckCircle}
+          colorTheme="emerald"
+        />
+        <MetricCard
+          title="Faltas Média"
+          value={data.summary.absentAvg.toString()}
+          subtitle="Alunos ausentes por aula"
+          icon={AlertTriangle}
+          colorTheme="red"
+        />
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-700">Relatório de Frequência ({data.className})</h3></div>
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-600 font-medium">
-            <tr>
-              <th className="px-6 py-4">Aluno</th>
-              <th className="px-6 py-4">Frequência</th>
-              <th className="px-6 py-4">Faltas</th>
-              <th className="px-6 py-4">Situação</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {data.students.map((student) => (
-              <tr key={student.id} className="hover:bg-slate-50">
-                <td className="px-6 py-4 font-medium text-slate-800">{student.name}</td>
-                <td className="px-6 py-4"><span className="font-bold text-slate-700">{student.attendanceRate}%</span></td>
-                <td className="px-6 py-4 text-slate-600">{student.absences} aulas</td>
-                <td className="px-6 py-4">
-                  {student.attendanceRate < 75 ? 
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700"><AlertTriangle className="w-3 h-3" /> Risco</span> : 
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Regular</span>
-                  }
-                </td>
+      {/* Tabela de Detalhes */}
+      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl p-6 overflow-hidden">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <Calendar className="w-5 h-5 text-indigo-500" />
+          Frequência Detalhada
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50/50 text-slate-500 text-xs uppercase font-semibold text-left">
+              <tr>
+                <th className="px-4 py-3">Aluno</th>
+                <th className="px-4 py-3">Frequência</th>
+                <th className="px-4 py-3">Faltas (Total)</th>
+                <th className="px-4 py-3">Situação</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm">
+              {data.students.map((student) => (
+                <tr key={student.id} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="px-4 py-3 font-medium text-slate-700">{student.name}</td>
+                  <td className="px-4 py-3 font-bold text-slate-600">{student.attendanceRate}%</td>
+                  <td className="px-4 py-3 text-slate-500">{student.absences}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-bold border ${student.status === 'Regular'
+                        ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                        : 'bg-red-100 text-red-700 border-red-200'
+                      }`}>
+                      {student.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {data.students.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                    Nenhum registro de frequência encontrado para esta seleção.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

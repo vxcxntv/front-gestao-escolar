@@ -21,9 +21,7 @@ interface ClassView {
   teacherName: string;
   teacherId?: string;
   studentsCount: number;
-  subjects?: Subject[]; // Lista de disciplinas da turma
-  schedule?: string;
-  room?: string;
+  subjects?: Subject[];
 }
 
 export function Classes() {
@@ -49,9 +47,7 @@ export function Classes() {
   const [formData, setFormData] = useState({
     name: '',
     grade: '',
-    teacherId: '',
-    schedule: '',
-    room: ''
+    teacherId: ''
   });
 
   const fetchData = async () => {
@@ -85,9 +81,7 @@ export function Classes() {
           teacherName: cls.teacher?.name || 'Sem Professor',
           teacherId: cls.teacherId,
           studentsCount: count,
-          subjects: cls.subjects || [], // Disciplinas vinculadas vindas do backend
-          schedule: cls.schedule || '',
-          room: cls.room || ''
+          subjects: cls.subjects || []
         };
       });
 
@@ -124,9 +118,7 @@ export function Classes() {
     setFormData({
       name: '',
       grade: new Date().getFullYear().toString(),
-      teacherId: '',
-      schedule: '',
-      room: ''
+      teacherId: ''
     });
     setShowModal(true);
   };
@@ -136,9 +128,7 @@ export function Classes() {
     setFormData({
       name: cls.name,
       grade: cls.grade,
-      teacherId: cls.teacherId || '',
-      schedule: cls.schedule || '',
-      room: cls.room || ''
+      teacherId: cls.teacherId || ''
     });
     setShowModal(true);
   };
@@ -151,9 +141,7 @@ export function Classes() {
       const payload = {
         name: formData.name.trim(),
         academic_year: parseInt(formData.grade),
-        teacherId: formData.teacherId,
-        schedule: formData.schedule,
-        room: formData.room
+        teacherId: formData.teacherId
       };
 
       if (editingId) {
