@@ -1,55 +1,72 @@
-// src/services/financeService.ts
 import { api } from '../lib/api';
 
+// Interfaces de Tipagem
 export interface Invoice {
   id: string;
-  studentName: string;
+  studentId: string;
+  student?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+  studentName?: string; 
   description: string;
   amount: number;
   dueDate: string;
   paidAt?: string;
-  status: 'pending' | 'paid' | 'overdue' | 'cancelled';
+  status: 'pending' | 'paid' | 'overdue' | 'canceled'; 
   createdAt?: string;
 }
 
 export interface FinancialReport {
-  totalRevenue: number;
-  paidInvoices: number;
-  pendingInvoices: number;
-  overdueInvoices: number;
+  periodo: { de: string; ate: string };
+  receitaTotal: number;
+}
+
+// Interfaces para envio de dados (Payloads)
+export interface CreateInvoicePayload {
+  studentId: string;
+  description: string;
+  amount: number;
+  dueDate: string;
+}
+
+export interface CreateBatchInvoicePayload {
+  classId: string;
+  description: string;
+  amount: number;
+  dueDate: string;
 }
 
 export const financeService = {
+  // 1. Buscar todas
   getAll: async (params?: { page?: number; limit?: number; status?: string }): Promise<Invoice[]> => {
     try {
       const response = await api.get('/invoices', { params });
-      
-      let data = response.data;
-      if (data && data.data && Array.isArray(data.data)) {
-        data = data.data;
-      }
+      const rawData = response.data;
+      const list = (rawData.data && Array.isArray(rawData.data)) ? rawData.data : rawData;
 
-      if (Array.isArray(data)) {
-        return data;
-      }
-      return [];
+      if (!Array.isArray(list)) return [];
+
+      return list.map((item: any) => ({
+        ...item,
+        amount: Number(item.amount),
+        studentName: item.student?.name || 'Aluno não identificado'
+      }));
     } catch (error: any) {
       console.error("financeService: Erro ao buscar faturas", error);
       throw error;
     }
   },
 
+  // 2. Buscar por ID
   getById: async (id: string): Promise<Invoice> => {
-    try {
-      const response = await api.get(`/invoices/${id}`);
-      return response.data;
-    } catch (error: any) {
-      console.error(`financeService: Erro ao buscar fatura ${id}`, error);
-      throw error;
-    }
+    const response = await api.get(`/invoices/${id}`);
+    return response.data;
   },
 
-  create: async (data: any): Promise<Invoice> => {
+  // 3. Criar Individual
+  create: async (data: CreateInvoicePayload): Promise<Invoice> => {
     try {
       const response = await api.post('/invoices', data);
       return response.data;
@@ -59,7 +76,8 @@ export const financeService = {
     }
   },
 
-  createBatch: async (data: any): Promise<any> => {
+  // 4. Criar em Lote (AQUI ESTAVA O ERRO - AGORA ESTÁ PRESENTE)
+  createBatch: async (data: CreateBatchInvoicePayload): Promise<any> => {
     try {
       const response = await api.post('/invoices/batch', data);
       return response.data;
@@ -69,43 +87,42 @@ export const financeService = {
     }
   },
 
-  update: async (id: string, data: any): Promise<Invoice> => {
+  // 5. Atualizar
+  update: async (id: string, data: Partial<CreateInvoicePayload>): Promise<Invoice> => {
+    const response = await api.patch(`/invoices/${id}`, data);
+    return response.data;
+  },
+
+  // 6. Cancelar
+  cancel: async (id: string): Promise<void> => { 
     try {
-      const response = await api.patch(`/invoices/${id}`, data);
-      return response.data;
+      await api.post(`/invoices/${id}/cancel`);
     } catch (error: any) {
-      console.error(`financeService: Erro ao atualizar fatura ${id}`, error);
+      console.error(`financeService: Erro ao cancelar fatura ${id}`, error);
       throw error;
     }
   },
 
-  delete: async (id: string): Promise<void> => { // Cancelar/Deletar
+  // 7. Marcar como Paga
+  markAsPaid: async (id: string): Promise<void> => {
     try {
-      await api.delete(`/invoices/${id}`);
-    } catch (error: any) {
-      console.error(`financeService: Erro ao excluir fatura ${id}`, error);
-      throw error;
-    }
-  },
-
-  markAsPaid: async (id: string, paymentDate: string): Promise<void> => {
-    try {
-      await api.post(`/invoices/${id}/pay`, { paymentDate });
+      await api.post(`/invoices/${id}/pay`);
     } catch (error: any) {
       console.error(`financeService: Erro ao marcar fatura ${id} como paga`, error);
       throw error;
     }
   },
 
+  // 8. Relatórios
   getRevenueReport: async (startDate: string, endDate: string): Promise<FinancialReport> => {
     try {
       const response = await api.get('/reports/financial/revenue', { 
         params: { startDate, endDate } 
       });
-      return response.data;
+      return response.data; 
     } catch (error: any) {
-      console.error("financeService: Erro ao buscar relatório financeiro", error);
-      throw error;
+      console.error("financeService: Erro ao buscar relatório", error);
+      return { periodo: { de: startDate, ate: endDate }, receitaTotal: 0 };
     }
   }
 };
