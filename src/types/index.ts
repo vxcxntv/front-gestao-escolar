@@ -466,3 +466,31 @@ export interface ClassStatistics {
   attendanceRate: number;
   studentCount: number;
 }
+
+export interface AdminDashboardStats {
+    totalStudents: number;
+    totalClasses: number;
+    totalTeachers: number;
+    revenueThisMonth: number;
+}
+
+export interface TeacherDashboardStats {
+    totalClassesTaught: number;
+    totalStudents: number;
+    pendingGradesCount: number; 
+    avgStudentPerformance: number; 
+    upcomingClasses: {
+        className: string;
+        time: string;
+    }[]; 
+}
+
+export interface StudentDashboardStats {
+    currentAvgGrade: number;
+    totalAbsences: number;
+    lastInvoiceStatus: 'paid' | 'pending' | 'overdue';
+    upcomingEvents: {
+        name: string;
+        date: string;
+    }[]; 
+}
