@@ -167,6 +167,46 @@ export function Grades() {
     );
   };
 
+  // --- NOVA FUNÇÃO DE EXPORTAR (CSV) ---
+  const handleExport = () => {
+    if (gradesData.length === 0) {
+      alert("Não há dados para exportar. Selecione uma turma e disciplina.");
+      return;
+    }
+
+    // Definição do cabeçalho
+    const headers = ["Aluno", "Matrícula", "Turma", "Disciplina", "1º Bim", "2º Bim", "3º Bim", "4º Bim", "Média"];
+    
+    // Criação das linhas (usando ponto e vírgula para compatibilidade com Excel em PT-BR)
+    const rows = gradesData.map(g => [
+      `"${g.studentName}"`,
+      `"${g.enrollment}"`,
+      `"${g.class}"`,
+      `"${g.subject}"`,
+      g.grade1.toString().replace('.', ','),
+      g.grade2.toString().replace('.', ','),
+      g.grade3.toString().replace('.', ','),
+      g.grade4.toString().replace('.', ','),
+      g.average.toFixed(2).replace('.', ',')
+    ].join(';'));
+
+    // Adiciona o BOM para corrigir acentuação no Excel
+    const csvContent = "\uFEFF" + headers.join(';') + "\n" + rows.join("\n");
+    
+    // Cria o Blob e faz o download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    
+    const currentDate = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+    link.setAttribute("href", url);
+    link.setAttribute("download", `notas_${filterClassId}_${currentDate}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // --- MODAL HANDLERS ---
   const handleModalOpen = () => {
     setModalClassId('');
@@ -217,7 +257,12 @@ export function Grades() {
           <p className="text-slate-500 mt-1">Selecione uma turma e disciplina para visualizar</p>
         </div>
         <div className="flex gap-3">
-          <button className="flex items-center gap-2 bg-white/50 backdrop-blur-md text-slate-600 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-white transition-all shadow-sm">
+          {/* BOTÃO EXPORTAR CORRIGIDO AQUI */}
+          <button 
+            onClick={handleExport}
+            disabled={gradesData.length === 0}
+            className="flex items-center gap-2 bg-white/50 backdrop-blur-md text-slate-600 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-white transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Download className="w-5 h-5" />
             <span className="hidden sm:inline font-medium">Exportar</span>
           </button>

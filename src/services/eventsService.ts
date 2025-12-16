@@ -1,25 +1,30 @@
 import { api } from '../lib/api';
 
+// Interface espelhando o Backend (event.model.ts)
 export interface Event {
   id: string;
   title: string;
-  description: string;
-  type: 'academic' | 'holiday' | 'meeting' | 'exam' | 'other';
-  startDate: string;
-  endDate: string;
-  allDay: boolean;
-  location?: string;
-  organizer?: string;
-  participants?: string[];
+  description?: string;
+  type: 'holiday' | 'exam' | 'meeting' | 'reunion' | 'other';
+  date: string; // Formato YYYY-MM-DD (DataType.DATEONLY do backend)
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export const eventsService = {
   getAll: async (params?: any): Promise<Event[]> => {
     try {
-      const response = await api.get('/events', { params });
+      // Mapeia os parâmetros do front para o que o Controller espera (filter-event.dto.ts)
+      const queryParams: any = {};
       
-      // Tratamento para garantir array, independente do formato da API (paginado ou não)
+      if (params?.type) queryParams.type = params.type;
+      if (params?.startDate) queryParams.dateFrom = params.startDate; // Backend espera dateFrom
+      if (params?.endDate) queryParams.dateTo = params.endDate;     // Backend espera dateTo
+      if (params?.title) queryParams.title = params.title;
+
+      const response = await api.get('/events', { params: queryParams });
+      
+      // O backend retorna paginação: { data: [...], total, page ... }
       let data = response.data;
       if (data && data.data && Array.isArray(data.data)) {
         data = data.data;
@@ -31,7 +36,6 @@ export const eventsService = {
       return [];
     } catch (error: any) {
       console.error("eventsService: Erro ao buscar eventos", error);
-      // Retorna array vazio em caso de erro para não quebrar a UI
       return []; 
     }
   },
@@ -46,7 +50,7 @@ export const eventsService = {
     }
   },
 
-  create: async (data: any): Promise<Event> => {
+  create: async (data: Omit<Event, 'id'>): Promise<Event> => {
     try {
       const response = await api.post('/events', data);
       return response.data;
@@ -56,7 +60,7 @@ export const eventsService = {
     }
   },
 
-  update: async (id: string, data: any): Promise<Event> => {
+  update: async (id: string, data: Partial<Event>): Promise<Event> => {
     try {
       const response = await api.patch(`/events/${id}`, data);
       return response.data;

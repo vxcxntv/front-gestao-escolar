@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Calendar as CalendarIcon, Plus, Filter, Clock, MapPin,
-  Users, Edit2, Trash2, ChevronLeft, ChevronRight, Loader2,
-  Search, CheckCircle
+  Calendar as CalendarIcon, Plus, Clock, 
+  Edit2, Trash2, ChevronLeft, ChevronRight, Loader2,
+  Search, Info, CheckCircle
 } from 'lucide-react';
 import { eventsService, Event } from '../services/eventsService';
-import { format, parseISO, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
+import { 
+  format, parseISO, startOfMonth, endOfMonth, 
+  addMonths, subMonths, startOfWeek, endOfWeek, 
+  eachDayOfInterval, isSameMonth, isSameDay, isToday 
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 export function EventsPage() {
@@ -20,17 +24,14 @@ export function EventsPage() {
   const [selectedType, setSelectedType] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Formulário
+  // Estado para visualização (Lista ou Calendário) - Opcional, mas deixei fixo o calendário acima da lista
+  // por enquanto.
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    type: 'academic',
-    startDate: '',
-    endDate: '',
-    startTime: '08:00',
-    endTime: '10:00',
-    location: '',
-    allDay: false
+    type: 'meeting',
+    date: '',
   });
 
   useEffect(() => {
@@ -40,13 +41,19 @@ export function EventsPage() {
   const loadEvents = async () => {
     setIsLoading(true);
     try {
-      const startDate = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
-      const endDate = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
+      // Para garantir que o calendário pegue eventos dos dias visíveis do mês anterior/próximo na grade
+      const monthStart = startOfMonth(currentMonth);
+      const monthEnd = endOfMonth(currentMonth);
+      const calendarStart = startOfWeek(monthStart);
+      const calendarEnd = endOfWeek(monthEnd);
+
+      const startDate = format(calendarStart, 'yyyy-MM-dd');
+      const endDate = format(calendarEnd, 'yyyy-MM-dd');
       
       const params: any = {
         type: selectedType || undefined,
-        startDate,
-        endDate
+        startDate, 
+        endDate    
       };
       
       const data = await eventsService.getAll(params);
@@ -62,14 +69,11 @@ export function EventsPage() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      // Combina data e hora
-      const startDateTime = `${formData.startDate}T${formData.startTime}:00`;
-      const endDateTime = `${formData.endDate || formData.startDate}T${formData.endTime}:00`;
-
       const payload = {
-        ...formData,
-        startDate: startDateTime,
-        endDate: endDateTime
+        title: formData.title,
+        description: formData.description,
+        type: formData.type as any,
+        date: formData.date
       };
 
       if (editingId) {
@@ -82,7 +86,7 @@ export function EventsPage() {
       loadEvents();
       alert("Evento salvo com sucesso!");
     } catch (error) {
-      alert("Erro ao salvar evento.");
+      alert("Erro ao salvar evento. Verifique os dados.");
     } finally {
       setIsSaving(false);
     }
@@ -98,70 +102,63 @@ export function EventsPage() {
     }
   };
 
-  const openModal = (event?: Event) => {
+  const openModal = (event?: Event, preSelectedDate?: Date) => {
     if (event) {
       setEditingId(event.id);
-      // Separa data e hora para os inputs
-      const start = parseISO(event.startDate);
-      const end = parseISO(event.endDate);
-      
       setFormData({
         title: event.title,
-        description: event.description,
+        description: event.description || '',
         type: event.type,
-        startDate: format(start, 'yyyy-MM-dd'),
-        endDate: format(end, 'yyyy-MM-dd'),
-        startTime: format(start, 'HH:mm'),
-        endTime: format(end, 'HH:mm'),
-        location: event.location || '',
-        allDay: event.allDay
+        date: event.date,
       });
     } else {
       setEditingId(null);
       setFormData({
         title: '',
         description: '',
-        type: 'academic',
-        startDate: format(new Date(), 'yyyy-MM-dd'),
-        endDate: format(new Date(), 'yyyy-MM-dd'),
-        startTime: '08:00',
-        endTime: '10:00',
-        location: '',
-        allDay: false
+        type: 'meeting',
+        date: preSelectedDate ? format(preSelectedDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       });
     }
     setShowModal(true);
   };
 
-  // Lógica de UI
   const getEventTypeConfig = (type: string) => {
     switch (type) {
-      case 'academic': return { label: 'Acadêmico', color: 'bg-blue-100 text-blue-700' };
-      case 'holiday': return { label: 'Feriado', color: 'bg-emerald-100 text-emerald-700' };
-      case 'meeting': return { label: 'Reunião', color: 'bg-purple-100 text-purple-700' };
-      case 'exam': return { label: 'Prova', color: 'bg-red-100 text-red-700' };
-      default: return { label: 'Outro', color: 'bg-slate-100 text-slate-700' };
+      case 'holiday': return { label: 'Feriado', color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' };
+      case 'exam': return { label: 'Prova', color: 'bg-red-100 text-red-700', dot: 'bg-red-500' };
+      case 'meeting': return { label: 'Reunião', color: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500' };
+      case 'reunion': return { label: 'Confraternização', color: 'bg-yellow-100 text-yellow-700', dot: 'bg-yellow-500' };
+      case 'other': return { label: 'Outro', color: 'bg-slate-100 text-slate-700', dot: 'bg-slate-500' };
+      default: return { label: 'Outro', color: 'bg-slate-100 text-slate-700', dot: 'bg-slate-500' };
     }
   };
 
   const typeFilters = [
     { value: '', label: 'Todos' },
-    { value: 'academic', label: 'Acadêmicos' },
-    { value: 'holiday', label: 'Feriados' },
     { value: 'meeting', label: 'Reuniões' },
-    { value: 'exam', label: 'Provas' }
+    { value: 'exam', label: 'Provas' },
+    { value: 'holiday', label: 'Feriados' },
+    { value: 'reunion', label: 'Confraternização' },
+    { value: 'other', label: 'Outros' }
   ];
 
-  // Filtro local de busca
+  // Filtro local
   const filteredEvents = events.filter(e => 
     e.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
     (e.description && e.description.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const upcomingEvents = filteredEvents
-    .filter(e => new Date(e.startDate) >= new Date())
-    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
-    .slice(0, 3);
+  // Lógica de Geração do Grid do Calendário
+  const calendarDays = React.useMemo(() => {
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(monthStart);
+    const startDate = startOfWeek(monthStart);
+    const endDate = endOfWeek(monthEnd);
+    return eachDayOfInterval({ start: startDate, end: endDate });
+  }, [currentMonth]);
+
+  const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
@@ -186,11 +183,8 @@ export function EventsPage() {
       {/* Main Container */}
       <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/50 shadow-xl overflow-hidden">
         
-        {/* Calendar Controls & Stats */}
-        <div className="p-6 border-b border-slate-100/50">
-          <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
-            
-            {/* Month Navigation */}
+        {/* Controls */}
+        <div className="p-6 border-b border-slate-100/50 flex flex-col lg:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4 bg-white/50 p-2 rounded-xl border border-slate-200">
               <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-slate-600">
                 <ChevronLeft className="w-5 h-5" />
@@ -203,7 +197,6 @@ export function EventsPage() {
               </button>
             </div>
 
-            {/* Type Filters */}
             <div className="flex flex-wrap gap-2 justify-center">
               {typeFilters.map((filter) => (
                 <button
@@ -220,7 +213,6 @@ export function EventsPage() {
               ))}
             </div>
 
-            {/* Search */}
             <div className="relative w-full lg:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input 
@@ -231,51 +223,92 @@ export function EventsPage() {
                     onChange={e => setSearchTerm(e.target.value)}
                 />
             </div>
-          </div>
-
-          {/* Upcoming Cards */}
-          {upcomingEvents.length > 0 && (
-             <div className="mt-8">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
-                    <Clock className="w-4 h-4" /> Próximos Eventos
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {upcomingEvents.map(event => {
-                         const typeConfig = getEventTypeConfig(event.type);
-                         return (
-                            <div key={event.id} onClick={() => openModal(event)} className="bg-white/60 border border-slate-200 p-4 rounded-xl hover:shadow-lg hover:border-indigo-200 transition-all cursor-pointer group">
-                                <div className="flex justify-between items-start mb-2">
-                                    <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full ${typeConfig.color}`}>
-                                        {typeConfig.label}
-                                    </span>
-                                    <span className="text-xs font-semibold text-slate-500">
-                                        {format(parseISO(event.startDate), 'dd/MM')}
-                                    </span>
-                                </div>
-                                <h4 className="font-bold text-slate-800 mb-1 group-hover:text-indigo-600 transition-colors">{event.title}</h4>
-                                <div className="flex items-center gap-2 text-xs text-slate-500">
-                                    <Clock className="w-3 h-3" />
-                                    {event.allDay ? 'Dia todo' : `${format(parseISO(event.startDate), 'HH:mm')} - ${format(parseISO(event.endDate), 'HH:mm')}`}
-                                </div>
-                            </div>
-                         )
-                    })}
-                </div>
-             </div>
-          )}
         </div>
 
-        {/* List Table */}
-        <div className="overflow-x-auto">
+        {/* Calendar Grid View */}
+        <div className="p-6 bg-slate-50/30">
+          <div className="grid grid-cols-7 mb-2">
+            {weekDays.map(day => (
+              <div key={day} className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-2">
+                {day}
+              </div>
+            ))}
+          </div>
+          
+          <div className="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+            {calendarDays.map((day, dayIdx) => {
+              // Encontra eventos deste dia específico
+              const dayEvents = filteredEvents.filter(e => isSameDay(parseISO(e.date), day));
+              const isCurrentMonth = isSameMonth(day, currentMonth);
+              const isTodayDate = isToday(day);
+
+              return (
+                <div 
+                  key={day.toString()} 
+                  onClick={() => openModal(undefined, day)}
+                  className={`
+                    min-h-[100px] bg-white p-2 relative hover:bg-indigo-50/30 transition-colors cursor-pointer group
+                    ${!isCurrentMonth ? 'bg-slate-50/50' : ''}
+                  `}
+                >
+                  <div className="flex justify-between items-start">
+                    <span className={`
+                      text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full
+                      ${isTodayDate ? 'bg-indigo-600 text-white shadow-md' : isCurrentMonth ? 'text-slate-700' : 'text-slate-400'}
+                    `}>
+                      {format(day, 'd')}
+                    </span>
+                    {dayEvents.length > 0 && (
+                       <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                         {dayEvents.length}
+                       </span>
+                    )}
+                  </div>
+                  
+                  {/* Dots / Small List for Events */}
+                  <div className="mt-2 space-y-1">
+                    {dayEvents.slice(0, 3).map(event => {
+                       const config = getEventTypeConfig(event.type);
+                       return (
+                         <div 
+                            key={event.id} 
+                            onClick={(e) => { e.stopPropagation(); openModal(event); }}
+                            className={`text-[10px] truncate px-1.5 py-0.5 rounded ${config.color} hover:opacity-80 transition-opacity`}
+                            title={event.title}
+                         >
+                           {event.title}
+                         </div>
+                       )
+                    })}
+                    {dayEvents.length > 3 && (
+                      <div className="text-[10px] text-slate-400 pl-1">
+                        + {dayEvents.length - 3} mais...
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Hover Plus Icon */}
+                  <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Plus className="w-4 h-4 text-indigo-400" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* List Table (Mantida abaixo para detalhamento) */}
+        <div className="overflow-x-auto border-t border-slate-100">
+            {/* Tabela existente... */}
           {isLoading ? (
-             <div className="p-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>
+             <div className="p-10 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>
           ) : (
             <table className="w-full">
               <thead className="bg-slate-50/50 text-slate-500 text-xs uppercase font-semibold text-left">
                 <tr>
                   <th className="px-6 py-4">Data</th>
                   <th className="px-6 py-4">Evento</th>
-                  <th className="px-6 py-4">Local</th>
+                  <th className="px-6 py-4">Detalhes</th> 
                   <th className="px-6 py-4">Tipo</th>
                   <th className="px-6 py-4 text-right">Ações</th>
                 </tr>
@@ -283,16 +316,18 @@ export function EventsPage() {
               <tbody className="divide-y divide-slate-100">
                 {filteredEvents.length === 0 ? (
                     <tr>
-                        <td colSpan={5} className="text-center py-12 text-slate-500">Nenhum evento encontrado.</td>
+                        <td colSpan={5} className="text-center py-12 text-slate-500">Nenhum evento neste período.</td>
                     </tr>
-                ) : filteredEvents.map((event) => {
+                ) : filteredEvents.slice(0, 10).map((event) => { // Limitei a 10 na lista para não ficar gigante com o calendário em cima
                   const typeConfig = getEventTypeConfig(event.type);
+                  const dateObj = parseISO(event.date);
+
                   return (
                     <tr key={event.id} className="hover:bg-indigo-50/30 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
-                            <span className="font-bold text-slate-700">{format(parseISO(event.startDate), 'dd/MM')}</span>
-                            <span className="text-xs text-slate-500">{format(parseISO(event.startDate), 'EEEE', { locale: ptBR })}</span>
+                            <span className="font-bold text-slate-700">{format(dateObj, 'dd/MM')}</span>
+                            <span className="text-xs text-slate-500 capitalize">{format(dateObj, 'EEEE', { locale: ptBR })}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -302,25 +337,17 @@ export function EventsPage() {
                           </div>
                           <div>
                             <p className="font-semibold text-slate-800">{event.title}</p>
-                            {!event.allDay && (
-                                <p className="text-xs text-slate-500">
-                                    {format(parseISO(event.startDate), 'HH:mm')} - {format(parseISO(event.endDate), 'HH:mm')}
-                                </p>
-                            )}
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 text-slate-600">
-                         <div className="flex items-center gap-2">
-                            {event.location ? (
-                                <>
-                                    <MapPin className="w-4 h-4 text-slate-400" />
-                                    <span className="text-sm">{event.location}</span>
-                                </>
-                            ) : (
-                                <span className="text-sm text-slate-400 italic">Sem local</span>
-                            )}
-                         </div>
+                         {event.description ? (
+                             <span className="text-sm truncate max-w-[200px] block" title={event.description}>
+                                {event.description}
+                             </span>
+                         ) : (
+                             <span className="text-sm text-slate-400 italic">Sem descrição</span>
+                         )}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${typeConfig.color}`}>
@@ -355,6 +382,11 @@ export function EventsPage() {
                 {editingId ? 'Editar Evento' : 'Novo Evento'}
             </h2>
             
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg flex gap-2 items-start text-sm text-blue-700">
+               <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+               <p>Eventos são registrados para o dia inteiro.</p>
+            </div>
+            
             <form onSubmit={handleSave} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Título</label>
@@ -364,45 +396,18 @@ export function EventsPage() {
               <div className="grid grid-cols-2 gap-4">
                  <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
-                    <select className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value as any })}>
-                        <option value="academic">Acadêmico</option>
-                        <option value="holiday">Feriado</option>
+                    <select className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
                         <option value="meeting">Reunião</option>
                         <option value="exam">Prova</option>
+                        <option value="holiday">Feriado</option>
+                        <option value="reunion">Confraternização</option>
                         <option value="other">Outro</option>
                     </select>
                  </div>
                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Local</label>
-                    <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} />
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Data</label>
+                    <input required type="date" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
                  </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Data Início</label>
-                    <input required type="date" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.startDate} onChange={e => setFormData({ ...formData, startDate: e.target.value })} />
-                 </div>
-                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Hora Início</label>
-                    <input type="time" disabled={formData.allDay} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-50" value={formData.startTime} onChange={e => setFormData({ ...formData, startTime: e.target.value })} />
-                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Data Fim</label>
-                    <input required type="date" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.endDate} onChange={e => setFormData({ ...formData, endDate: e.target.value })} />
-                 </div>
-                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Hora Fim</label>
-                    <input type="time" disabled={formData.allDay} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-50" value={formData.endTime} onChange={e => setFormData({ ...formData, endTime: e.target.value })} />
-                 </div>
-              </div>
-
-              <div className="flex items-center gap-2 py-2">
-                 <input type="checkbox" id="allDay" checked={formData.allDay} onChange={e => setFormData({ ...formData, allDay: e.target.checked })} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-                 <label htmlFor="allDay" className="text-sm font-medium text-slate-700 select-none cursor-pointer">Evento de dia inteiro</label>
               </div>
 
               <div>
